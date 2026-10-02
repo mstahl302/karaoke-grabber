@@ -1,0 +1,2 @@
+# Runtime dependencies: none beyond the standard library.
+# yt-dlp, ffmpeg and deno come from Homebrew (see docs/dev_environment.md).

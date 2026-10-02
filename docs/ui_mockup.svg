@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="-20 0 800 800" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B2A86"/>
+      <stop offset="1" stop-color="#C2307A"/>
+    </linearGradient>
+    <linearGradient id="brandH" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5B2A86"/>
+      <stop offset="1" stop-color="#C2307A"/>
+    </linearGradient>
+    <linearGradient id="thumb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2E3A59"/>
+      <stop offset="1" stop-color="#7A4E9E"/>
+    </linearGradient>
+    <linearGradient id="titlebar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4F4F6"/>
+      <stop offset="1" stop-color="#E6E6EA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- window -->
+  <rect x="10" y="10" width="740" height="780" rx="12" fill="#FFFFFF" stroke="#C9C9D0"/>
+  <path d="M10 22 a12 12 0 0 1 12 -12 h716 a12 12 0 0 1 12 12 v26 h-740 z" fill="url(#titlebar)"/>
+  <line x1="10" y1="48" x2="750" y2="48" stroke="#D5D5DB"/>
+  <circle cx="32" cy="29" r="6" fill="#FF5F57"/>
+  <circle cx="52" cy="29" r="6" fill="#FEBC2E"/>
+  <circle cx="72" cy="29" r="6" fill="#28C840"/>
+  <rect x="318" y="20" width="18" height="18" rx="4" fill="url(#brand)"/>
+  <rect x="324.5" y="23" width="5" height="8" rx="2.5" fill="#FFFFFF"/>
+  <path d="M322 30 a5 5 0 0 0 10 0" fill="none" stroke="#FFFFFF" stroke-width="1.3"/>
+  <text x="344" y="34" font-size="13" font-weight="bold" fill="#333">Karaoke Grabber</text>
+
+  <!-- URL + Fetch -->
+  <rect x="34" y="66" width="572" height="34" rx="8" fill="#F7F7F9" stroke="#CFCFD6"/>
+  <g transform="translate(48 76)" fill="none" stroke="#8A8A95" stroke-width="2" stroke-linecap="round">
+    <path d="M6 9 l4 -4 a3.5 3.5 0 0 1 5 5 l-2 2"/>
+    <path d="M8 5 l-2 2 a3.5 3.5 0 0 0 5 5 l4 -4"/>
+  </g>
+  <text x="74" y="88" font-size="13" fill="#555">https://www.youtube.com/watch?v=…</text>
+  <rect x="618" y="66" width="108" height="34" rx="8" fill="url(#brand)"/>
+  <text x="672" y="88" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">Fetch</text>
+
+  <!-- info card + key -->
+  <rect x="34" y="116" width="692" height="104" rx="10" fill="#FAF7FC" stroke="#E4DAEE"/>
+  <rect x="48" y="128" width="136" height="80" rx="6" fill="url(#thumb)"/>
+  <circle cx="116" cy="168" r="18" fill="#FFFFFF" fill-opacity="0.85"/>
+  <path d="M110 158 l16 10 l-16 10 z" fill="#5B2A86"/>
+  <text x="200" y="139" font-size="11" fill="#8A8A95" letter-spacing="0.5">SONG TITLE · from YouTube, editable</text>
+  <text x="200" y="159" font-size="15" font-weight="bold" fill="#222">Defying Gravity (Karaoke Version) - Wicked</text>
+  <!-- pencil edit button -->
+  <rect x="518" y="143" width="24" height="22" rx="6" fill="#FFFFFF" stroke="#CFC3DD"/>
+  <g transform="translate(524 148)">
+    <path d="M2 11 l1 -3 l7 -7 l2 2 l-7 7 z" fill="#5B2A86"/>
+    <path d="M1.5 12.5 l1 -3 l2 2 z" fill="#C2307A"/>
+  </g>
+  <text x="200" y="178" font-size="12" fill="#666">Sing King   ·   5:47</text>
+  <g transform="translate(200 186)">
+    <path d="M6 18 v-14 l10 -3 v14" fill="none" stroke="#5B2A86" stroke-width="2"/>
+    <circle cx="4" cy="18" r="3" fill="#5B2A86"/>
+    <circle cx="14" cy="15" r="3" fill="#5B2A86"/>
+  </g>
+  <text x="226" y="203" font-size="13" font-weight="bold" fill="#333">Key</text>
+  <rect x="258" y="186" width="160" height="26" rx="6" fill="#FFFFFF" stroke="#C2307A" stroke-width="1.5"/>
+  <text x="270" y="204" font-size="13" fill="#999">— choose —</text>
+  <path d="M400 196 l5 6 l5 -6" fill="none" stroke="#666" stroke-width="1.6"/>
+  <text x="428" y="204" font-size="12" fill="#C2307A">required</text>
+
+  <!-- TRIM -->
+  <text x="34" y="252" font-size="12" font-weight="bold" fill="#8A8A95" letter-spacing="1">TRIM</text>
+  <text x="726" y="252" font-size="11" fill="#8A8A95" text-anchor="end">whole track 0:00 – 5:47</text>
+  <rect x="34" y="260" width="692" height="64" rx="10" fill="#F7F7F9" stroke="#E2E2E8"/>
+  <rect x="52" y="286" width="656" height="12" rx="6" fill="#E2DDEA"/>
+  <rect x="100" y="286" width="560" height="12" fill="url(#brandH)"/>
+  <!-- playback cursor (trim) -->
+  <line x1="279" y1="270" x2="279" y2="314" stroke="#1F1F28" stroke-width="2"/>
+  <path d="M273 268 h12 l-6 7 z" fill="#1F1F28"/>
+  <!-- trim handles -->
+  <rect x="90" y="273" width="20" height="38" rx="6" fill="#FFFFFF" stroke="#5B2A86" stroke-width="3"/>
+  <rect x="650" y="273" width="20" height="38" rx="6" fill="#FFFFFF" stroke="#C2307A" stroke-width="3"/>
+  <!-- trim values -->
+  <text x="34" y="350" font-size="13" fill="#555">Start</text>
+  <rect x="72" y="336" width="78" height="22" rx="5" fill="#EFEFF3"/>
+  <text x="111" y="352" font-size="13" fill="#333" text-anchor="middle">4.5 s</text>
+  <text x="380" y="351" font-size="12" fill="#8A8A95" text-anchor="middle">Trimmed length 5:34.5</text>
+  <text x="612" y="350" font-size="13" fill="#555">End</text>
+  <rect x="644" y="336" width="82" height="22" rx="5" fill="#EFEFF3"/>
+  <text x="685" y="352" font-size="13" fill="#333" text-anchor="middle">339.0 s</text>
+
+  <!-- FADE -->
+  <text x="34" y="396" font-size="12" font-weight="bold" fill="#8A8A95" letter-spacing="1">FADE</text>
+  <text x="726" y="396" font-size="11" fill="#8A8A95" text-anchor="end">trimmed range 0:00 – 5:34.5</text>
+  <rect x="34" y="404" width="692" height="64" rx="10" fill="#F7F7F9" stroke="#E2E2E8"/>
+  <!-- volume envelope over the trimmed range -->
+  <path d="M52 452 L80 420 L672 420 L708 452 Z" fill="url(#brandH)" fill-opacity="0.22"/>
+  <path d="M52 452 L80 420 L672 420 L708 452" fill="none" stroke="url(#brandH)" stroke-width="2"/>
+  <line x1="52" y1="452" x2="708" y2="452" stroke="#D9D3E3" stroke-width="2"/>
+  <!-- playback cursor (fade), same moment as on the trim slider -->
+  <line x1="278" y1="414" x2="278" y2="458" stroke="#1F1F28" stroke-width="2"/>
+  <path d="M272 412 h12 l-6 7 z" fill="#1F1F28"/>
+  <!-- fade handles -->
+  <rect x="70" y="417" width="20" height="38" rx="6" fill="#FFFFFF" stroke="#5B2A86" stroke-width="3"/>
+  <rect x="662" y="417" width="20" height="38" rx="6" fill="#FFFFFF" stroke="#C2307A" stroke-width="3"/>
+  <!-- fade values -->
+  <text x="34" y="494" font-size="13" fill="#555">Fade in</text>
+  <rect x="88" y="480" width="70" height="22" rx="5" fill="#EFEFF3"/>
+  <text x="123" y="496" font-size="13" fill="#333" text-anchor="middle">8.0 s</text>
+  <text x="380" y="495" font-size="12" fill="#8A8A95" text-anchor="middle">Handles at the ends = no fade (default)</text>
+  <text x="586" y="494" font-size="13" fill="#555">Fade out</text>
+  <rect x="648" y="480" width="78" height="22" rx="5" fill="#EFEFF3"/>
+  <text x="687" y="496" font-size="13" fill="#333" text-anchor="middle">12.0 s</text>
+
+  <!-- PREVIEW -->
+  <text x="34" y="540" font-size="12" font-weight="bold" fill="#8A8A95" letter-spacing="1">PREVIEW</text>
+  <text x="726" y="540" font-size="11" fill="#8A8A95" text-anchor="end">cursor 2:00.0 (1:55.5 into trim)</text>
+  <!-- from start -->
+  <rect x="34" y="550" width="161" height="38" rx="9" fill="#FFFFFF" stroke="#CFCFD6"/>
+  <circle cx="56" cy="569" r="11" fill="url(#brand)"/>
+  <rect x="50" y="563.5" width="2.5" height="11" fill="#FFFFFF"/>
+  <path d="M54 563.5 l8.5 5.5 l-8.5 5.5 z" fill="#FFFFFF"/>
+  <text x="74" y="574" font-size="13" fill="#333">From start</text>
+  <!-- play from cursor -->
+  <rect x="211" y="550" width="161" height="38" rx="9" fill="url(#brand)"/>
+  <circle cx="233" cy="569" r="11" fill="#FFFFFF"/>
+  <path d="M229.5 563.5 l9 5.5 l-9 5.5 z" fill="#5B2A86"/>
+  <text x="251" y="574" font-size="13" font-weight="bold" fill="#FFFFFF">Start</text>
+  <text x="290" y="574" font-size="11" fill="#F3E6F7">(from cursor)</text>
+  <!-- stop -->
+  <rect x="388" y="550" width="161" height="38" rx="9" fill="#FFFFFF" stroke="#CFCFD6"/>
+  <circle cx="410" cy="569" r="11" fill="#3A3A44"/>
+  <rect x="405" y="563.5" width="3.5" height="11" fill="#FFFFFF"/>
+  <rect x="411.5" y="563.5" width="3.5" height="11" fill="#FFFFFF"/>
+  <text x="428" y="574" font-size="13" fill="#333">Stop</text>
+  <!-- from end -->
+  <rect x="565" y="550" width="161" height="38" rx="9" fill="#FFFFFF" stroke="#CFCFD6"/>
+  <circle cx="587" cy="569" r="11" fill="url(#brand)"/>
+  <path d="M582 563.5 l8.5 5.5 l-8.5 5.5 z" fill="#FFFFFF"/>
+  <rect x="591.5" y="563.5" width="2.5" height="11" fill="#FFFFFF"/>
+  <text x="605" y="574" font-size="13" fill="#333">From end</text>
+
+  <!-- divider -->
+  <line x1="34" y1="614" x2="726" y2="614" stroke="#E6E6EA"/>
+
+  <!-- SAVE -->
+  <text x="34" y="642" font-size="12" font-weight="bold" fill="#8A8A95" letter-spacing="1">SAVE</text>
+  <rect x="34" y="652" width="692" height="44" rx="10" fill="#E7E2EC"/>
+  <g transform="translate(282 664)" fill="none" stroke="#A79BB4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 0 v12"/><path d="M4 8 l5 5 l5 -5"/><path d="M0 18 h18"/>
+  </g>
+  <text x="310" y="680" font-size="15" font-weight="bold" fill="#A79BB4">Save MP3…</text>
+  <text x="404" y="680" font-size="12" fill="#C2307A">· pick a key first</text>
+
+  <!-- save progress -->
+  <rect x="34" y="716" width="692" height="10" rx="5" fill="#ECECF0"/>
+  <rect x="34" y="716" width="429" height="10" rx="5" fill="url(#brandH)"/>
+  <text x="34" y="750" font-size="12" fill="#666">62%   Saving…</text>
+  <text x="726" y="750" font-size="12" fill="#5B2A86" text-anchor="end" font-weight="bold">Cancel</text>
+</svg>

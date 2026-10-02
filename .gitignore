@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+.DS_Store
+
+# icon build intermediates (source is assets/icon.svg; committed output is assets/icon.icns)
+assets/icon.iconset/
+assets/icon-1024.png
+
+# test / tool caches
+.pytest_cache/

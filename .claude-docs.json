@@ -1,0 +1,57 @@
+{
+  "_about": "Mirror map: each Markdown file <-> its Claude Doc (for commenting). Keep both in sync; see ~/.claude/CLAUDE.md. The italic 'Mirror of <full path>.' line at the top of each doc exists only in the doc.",
+  "docs": {
+    "docs/product_spec.md": {
+      "title": "Karaoke Grabber — Product Spec",
+      "url": "https://claude.ai/code/artifact/d2209d03-c9f5-4e6f-a275-c78a04d2affc",
+      "doc_id": "d2209d03-c9f5-4e6f-a275-c78a04d2affc",
+      "tab_id": "2e8177c4-daab",
+      "body_id": "66da9133-8a5b",
+      "synced_rev": 362,
+      "synced_sha256": "70d8999d473cf6a2f7a4cd2fa534b8ec7d72cd549180a5b5af8d432dccc9fb96",
+      "images": {
+        "docs/ui_mockup.png": {
+          "blob": "blob/2c8795c7-255d",
+          "asset": "c12e43de6abd140513cb206f4dfd4cb2",
+          "sha256": "4a0d78141b02a4231b840bd0600ba14affc069d9cc610f73c8699da696972eb9"
+        }
+      }
+    },
+    "docs/architecture.md": {
+      "title": "Karaoke Grabber — Architecture",
+      "url": "https://claude.ai/code/artifact/34dd15ed-d25a-48a4-a1fd-440f3ea723b0",
+      "doc_id": "34dd15ed-d25a-48a4-a1fd-440f3ea723b0",
+      "tab_id": "7f45893b-3b59",
+      "body_id": "f06343ac-7c84",
+      "synced_rev": 32,
+      "synced_sha256": "3155b4325e7b5aeaf48e13d8b46e59f3c3059dd73549d687540074e5f33e9b95"
+    },
+    "docs/dev_environment.md": {
+      "title": "Karaoke Grabber — Dev Environment",
+      "url": "https://claude.ai/code/artifact/387b6b57-c38a-4406-9c10-8fb825b5ef11",
+      "doc_id": "387b6b57-c38a-4406-9c10-8fb825b5ef11",
+      "tab_id": "09724502-1e64",
+      "body_id": "890fbeef-2e0f",
+      "synced_rev": 26,
+      "synced_sha256": "0b7dd27ff57e7a18491c1a198833f60b0cbb5a3eb7bde06a25e5be167a59ac10"
+    },
+    "docs/roadmap.md": {
+      "title": "Karaoke Grabber — Roadmap & Feature Requests",
+      "url": "https://claude.ai/code/artifact/35921c14-93e1-4644-b81e-9f2fd5d39575",
+      "doc_id": "35921c14-93e1-4644-b81e-9f2fd5d39575",
+      "tab_id": "3d12e6b2-625c",
+      "body_id": "a86b4962-0945",
+      "synced_rev": 23,
+      "synced_sha256": "7e247ed07387ddec806a2c0f3d711ddeabbabeaae020bbd27096b71fb4e24833"
+    },
+    "docs/build_plan.md": {
+      "title": "Karaoke Grabber — Build Plan",
+      "url": "https://claude.ai/code/artifact/e3c09edd-7622-4a91-b991-65feb4738873",
+      "doc_id": "e3c09edd-7622-4a91-b991-65feb4738873",
+      "tab_id": "b6905fe2-9020",
+      "body_id": "add13309-b3a2",
+      "synced_rev": 16,
+      "synced_sha256": "e29771bfd372426cb809bfe015cc9395cf4f65bb12b4086a162464a1bd650682"
+    }
+  }
+}

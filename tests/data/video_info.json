@@ -1,0 +1,43 @@
+{
+ "id": "jNQXAC9IVRw",
+ "title": "Me at the zoo",
+ "channel": "jawed",
+ "uploader": "jawed",
+ "duration": 19,
+ "thumbnail": "https://i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg?sqp=-oaymwEmCOADEOgC8quKqQMa8AEB-AG-AoAC8AGKAgwIABABGFUgWShlMA8=&rs=AOn4CLA9eLBatYv9WbkD4BbZ2Im-biSPTw",
+ "is_live": false,
+ "live_status": "not_live",
+ "_type": "video",
+ "webpage_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+ "extractor": "youtube",
+ "thumbnails": [
+  {
+   "url": "https://i.ytimg.com/vi/jNQXAC9IVRw/maxresdefault.jpg",
+   "preference": -1,
+   "id": "42"
+  },
+  {
+   "url": "https://i.ytimg.com/vi_webp/jNQXAC9IVRw/maxresdefault.webp",
+   "preference": 0,
+   "id": "43"
+  }
+ ],
+ "formats": [
+  {
+   "format_id": "233",
+   "url": "https://example.invalid/audio",
+   "ext": "mp4",
+   "protocol": "m3u8_native",
+   "vcodec": "none",
+   "abr": null
+  },
+  {
+   "format_id": "234",
+   "url": "https://example.invalid/audio",
+   "ext": "mp4",
+   "protocol": "m3u8_native",
+   "vcodec": "none",
+   "abr": null
+  }
+ ]
+}

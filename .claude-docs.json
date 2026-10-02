@@ -23,8 +23,8 @@
       "doc_id": "34dd15ed-d25a-48a4-a1fd-440f3ea723b0",
       "tab_id": "7f45893b-3b59",
       "body_id": "f06343ac-7c84",
-      "synced_rev": 32,
-      "synced_sha256": "3155b4325e7b5aeaf48e13d8b46e59f3c3059dd73549d687540074e5f33e9b95"
+      "synced_rev": 33,
+      "synced_sha256": "9a716d00e143f8ef7e1effc9e094219937cd7674a199c4f44476528d7f960bcc"
     },
     "docs/dev_environment.md": {
       "title": "Karaoke Grabber — Dev Environment",
@@ -52,6 +52,16 @@
       "body_id": "add13309-b3a2",
       "synced_rev": 16,
       "synced_sha256": "e29771bfd372426cb809bfe015cc9395cf4f65bb12b4086a162464a1bd650682"
+    },
+    "README.md": {
+      "title": "Karaoke Grabber — README",
+      "url": "https://claude.ai/code/artifact/93629bf2-62c1-415f-a016-d207a352c9c4",
+      "doc_id": "93629bf2-62c1-415f-a016-d207a352c9c4",
+      "tab_id": "5ec407ad-1a25",
+      "body_id": "25ac4541-e39e",
+      "synced_rev": 1,
+      "synced_sha256": "5e0888b701833a68f8ee62181a62c0b60cd56ef0516375e4beaee3d5c3f0c0ee",
+      "notes": "Doc links point at the Claude Doc mirrors instead of relative paths; the CI badge is omitted (private repo)."
     }
   }
 }

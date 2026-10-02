@@ -54,7 +54,8 @@ karaokegrab/
   trim.py               pure: TrimSpec(start, end, fade_in, fade_out) → ffmpeg argv
   render.py             run ffmpeg for final MP3 + preview clips; progress; cancel
   player.py             preview playback via afplay: play from a cursor, stop, report elapsed time
-  cache.py              cache paths keyed by video id; prune to last ~10
+  cache.py              one cache folder per video id (audio, info.json, thumb.png); prune to last ~10
+  proc.py               run one external tool: stream stdout, keep stderr, cancel (kills its process group)
   settings.py           JSON settings (last save folder, fade defaults) + log file
 tests/                  pytest; subprocess mocked; no network
 assets/                 icon.svg (source) → icon.icns via make_icon.py
@@ -105,10 +106,12 @@ The best audio stream (usually Opus/WebM or M4A) is downloaded into the
 cache **as is**, without re-encoding. Every preview and the final save
 are separate ffmpeg renders from that one source, so trim changes cost
 milliseconds and the audio is encoded to MP3 only once, at save time.
+The download reuses the metadata saved by Fetch (`--load-info-json`), so
+YouTube is looked up only once per URL.
 
 ### 5.3 Rendering
 
-- Final save: `ffmpeg -ss <start> -to <end> -i <cache> -af "afade=t=in:d=…,afade=t=out:st=…:d=…" -c:a libmp3lame -q:a 0 -progress pipe:1 <path>.part`,
+- Final save: `ffmpeg -ss <start> -t <length> -i <cache> -af "afade=t=in:st=0:d=…,afade=t=out:st=…:d=…" -c:a libmp3lame -q:a 0 -progress pipe:1 -f mp3 <path>.part`,
   then an atomic rename to `<path>`. Cancel kills ffmpeg and deletes the
   `.part` file.
 - Previews: the same pipeline (same trim and fades), rendered from the
@@ -118,6 +121,9 @@ milliseconds and the audio is encoded to MP3 only once, at save time.
   elapsed time); **Start** renders again from the cursor. **From start**
   sets the cursor to the trim start; **From end** plays the last 10 s up
   to the trim end.
+- A preview from the cursor still decodes from the trim start and drops
+  the audio before the cursor with an output-side `-ss`, so the fade-in
+  sounds exactly as it will be saved.
 - The playback cursor is one time value in `main.py` state, drawn on both
   sliders (trim slider: absolute time; fade slider: time relative to the
   trim start), advanced by a Tk `after()` timer while playing, and set by
@@ -129,8 +135,9 @@ milliseconds and the audio is encoded to MP3 only once, at save time.
 
 ### 5.4 Progress parsing
 
-- yt-dlp runs with `--newline --progress-template "download:PROG|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.eta)s"`,
-  and one line is parsed per update.
+- yt-dlp runs with `--newline --progress-template "download:PROG|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.eta)s"`,
+  and one line is parsed per update. The exact total is used when yt-dlp
+  knows it, otherwise the estimate.
 - ffmpeg runs with `-progress pipe:1`; `out_time_us` divided by the
   trimmed duration gives the percentage.
 - Both parsers are pure functions with tests.

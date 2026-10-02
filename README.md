@@ -5,7 +5,7 @@
 A small macOS app that turns a YouTube karaoke (backing) track into a
 trimmed, correctly named MP3: `<Song Title> - AUDIO - <key>.mp3`.
 
-**Status:** in development (milestone M0, environment). The full README
+**Status:** in development (milestone M1, core engine). The full README
 arrives with V1; its outline is in
 [docs/dev_environment.md](docs/dev_environment.md) §6.
 
@@ -24,6 +24,16 @@ python3.14 -m venv .venv
 .venv/bin/python main.py
 .venv/bin/python -m pytest
 ```
+
+Until the window is built (M2), the engine runs from the command line:
+
+```bash
+.venv/bin/python -m karaokegrab "<url>" --key B-flat --start 4.5 --end 339 --fade-out 2
+```
+
+`--title` overrides the YouTube title, `--fade-in` adds a fade-in, and
+`--out` picks the folder (default: the last one used). Run with `--help`
+for everything.
 
 ## Docs
 

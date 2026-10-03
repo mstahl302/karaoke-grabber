@@ -253,3 +253,12 @@ without Homebrew. This conflicts with R3's Homebrew-based updates.
 V1 always saves at the best variable bitrate (V0, ~245 kbps). Add a
 setting to choose another quality, e.g. constant 320 kbps or a smaller
 128 kbps file.
+
+### FR10. Faster previews of very long videos
+
+A preview is one WAV clip from the cursor to the trim end. For a song
+that's ready in under a second, but for a very long video (a full concert,
+say) it can take several seconds; V1 shows "Preparing preview…" with
+progress while it waits. If that ever becomes a nuisance, render the
+preview in pieces of about 60 s and start playing the first one at once.
+Probably never needed for songs.

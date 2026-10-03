@@ -7,8 +7,8 @@
       "doc_id": "d2209d03-c9f5-4e6f-a275-c78a04d2affc",
       "tab_id": "2e8177c4-daab",
       "body_id": "66da9133-8a5b",
-      "synced_rev": 372,
-      "synced_sha256": "81f67194b61ecd539ef9c849d4075aee50e52591d5de2ec09c38eb2943967bbd",
+      "synced_rev": 373,
+      "synced_sha256": "f5b5ab7886f1aeb2c4ee216ee6fa6245ffee1276f7d8e517fe0fb6559dddb653",
       "images": {
         "docs/ui_mockup.png": {
           "blob": "blob/21dbdf6e-c703",
@@ -41,8 +41,8 @@
       "doc_id": "35921c14-93e1-4644-b81e-9f2fd5d39575",
       "tab_id": "3d12e6b2-625c",
       "body_id": "a86b4962-0945",
-      "synced_rev": 25,
-      "synced_sha256": "5aeac679289fc681e3b12facc307839eb3f75c933b666b045ec0e265a7477e8c"
+      "synced_rev": 26,
+      "synced_sha256": "21e634080b0088c0320d08679929ac7582f5a7927800864f944dc9f0ec1d288c"
     },
     "docs/build_plan.md": {
       "title": "Karaoke Grabber — Build Plan",
@@ -50,8 +50,8 @@
       "doc_id": "e3c09edd-7622-4a91-b991-65feb4738873",
       "tab_id": "b6905fe2-9020",
       "body_id": "add13309-b3a2",
-      "synced_rev": 20,
-      "synced_sha256": "9a299841a3e70dbefcef119c52b7cce1522e3daa812e1e5ce6b77223c3113463"
+      "synced_rev": 22,
+      "synced_sha256": "fee4e44078148c520a9e9562554bf5260f8c7494d2bd4b88fa54a7d6985c676a"
     },
     "README.md": {
       "title": "Karaoke Grabber — README",

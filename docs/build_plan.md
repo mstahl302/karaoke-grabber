@@ -175,12 +175,36 @@ played.
 - [ ] Prerequisite check on launch (F16): Homebrew, yt-dlp, ffmpeg and
       deno; a dialog with the one command to run and a Copy button; a
       missing Homebrew points to the README
+- [ ] Step-by-step progress (F10): one bar runs across the whole Fetch,
+      with a short message at each stop, so a long download never looks stuck:
+  - "Looking up the video…" at 3%
+  - "Getting the thumbnail…" at 8%
+  - "Downloading the audio… 45%" from 10% to 95%, with real progress
+  - "Finishing…" at 98%, then "Ready." and the bar hides
+  - A preview shows "Preparing preview…" with ffmpeg's real progress, and
+    **Stop** cancels a preview that's still being prepared
+  - Saving keeps "Saving… 62%"; the **Cancel** link stays in view for the
+    whole Fetch and Save
 - [ ] Details pane and log file wired into every error path (F11)
 - [ ] Cache pruning on startup
-- [ ] Remember the last save folder across launches
+- [x] Remember the last save folder across launches (done in M2)
 - [ ] Light and dark mode check; window resizing behaves
-- [ ] Edge cases: very short videos, live streams and playlists rejected
-      with a clear message, no network
+- [ ] Edge cases, each with a clear message:
+  - Playlist-only links (`playlist?list=…`) rejected at once, before
+    yt-dlp spends time listing the playlist. A video link inside a
+    playlist still fetches just that video.
+  - YouTube links only (youtube.com, youtu.be, m., music., /shorts/);
+    other sites get "Only YouTube links for now" (Roadmap R10 lifts this)
+  - The first link is picked out of pasted text with extra words or spaces
+  - Videos under 1 s rejected; live, upcoming and just-ended streams
+    rejected (done in M1)
+  - No network at Fetch (done in M1), and a network drop during the
+    download says so instead of suggesting a yt-dlp update
+  - Save folder full or not writable: a clear message
+  - Quitting during a save leaves no `.part` file
+  - Cached audio deleted while the app is open: download it again
+  - Real-link check of `youtu.be/…`, `/shorts/…`, `music.youtube.com`,
+    `m.youtube.com` and `&t=90s` links
 
 **Exit criteria:** a week of normal use with no crashes or confusing
 states; tests and CI green.

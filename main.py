@@ -31,7 +31,7 @@ from karaokegrab.trim import TrimSpec
 from karaokegrab.widgets import HAND, MAGENTA, PURPLE, Button
 
 APP_NAME = "Karaoke Grabber"
-KEY_PLACEHOLDER = "— choose —"
+KEY_NONE = "— none —"          # optional: no key leaves it out of the file name
 THUMB_W, THUMB_H = 160, 90
 PUMP_MS = 50
 TICK_MS = 50          # playback cursor refresh
@@ -141,7 +141,7 @@ class App(tk.Tk):
         self.url_var = tk.StringVar()
         self.title_var = tk.StringVar()
         self.meta_var = tk.StringVar()
-        self.key_var = tk.StringVar(value=KEY_PLACEHOLDER)
+        self.key_var = tk.StringVar(value=KEY_NONE)
         self.status_var = tk.StringVar()
         self.trim_note = tk.StringVar()
         self.fade_note = tk.StringVar()
@@ -287,12 +287,11 @@ class App(tk.Tk):
         krow = tk.Frame(card, bg=CARD_BG)
         krow.grid(row=3, column=1, sticky="w", pady=(6, 14))
         tk.Label(krow, text="♫ Key", font=self.f_head, bg=CARD_BG).grid(row=0, column=0, padx=(0, 8))
-        self.key_box = ttk.Combobox(krow, textvariable=self.key_var, values=list(keys.KEYS),
-                                    state="disabled", width=16, height=24)
+        self.key_box = ttk.Combobox(krow, textvariable=self.key_var,
+                                    values=[KEY_NONE, *keys.KEYS],
+                                    state="disabled", width=16, height=25)
         self.key_box.grid(row=0, column=1)
         self.key_box.bind("<<ComboboxSelected>>", lambda _e: self._key_changed())
-        self.key_hint = tk.Label(krow, text="required", fg=WARN, bg=CARD_BG)
-        self.key_hint.grid(row=0, column=2, padx=(10, 0))
 
         # Trim (F4): the whole track
         self._section(root, 2, "Trim", self.trim_note)
@@ -401,18 +400,12 @@ class App(tk.Tk):
             return "saving…"
         if self.audio is None or self.info is None:
             return "fetch a video first"
-        if self._key() is None:
-            return "pick a key first"
         return ""
 
     def _refresh_save(self) -> None:
         why = self.save_blocker()
         self.save_btn.set_enabled(not why)
         self.save_btn.configure(text="Save MP3…" + (f"   · {why}" if why else ""))
-        if self.info is not None and self._key() is None:
-            self.key_hint.grid()
-        else:
-            self.key_hint.grid_remove()
 
     def _key_changed(self) -> None:
         self.key_box.selection_clear()
@@ -426,7 +419,7 @@ class App(tk.Tk):
         self.audio = None
         self.title_var.set("")
         self.meta_var.set("")
-        self.key_var.set(KEY_PLACEHOLDER)
+        self.key_var.set(KEY_NONE)
         self._thumb_img = None
         self.thumb.configure(image=self._blank, text="♪")
         self.progress.configure(value=0)
@@ -748,7 +741,7 @@ class App(tk.Tk):
             (audio,) = payload
             self.audio = audio
             self.progress.configure(value=1.0)
-            self.status_var.set("Ready. Trim and preview, pick the key, then save.")
+            self.status_var.set("Ready. Trim and preview, pick the key if you like, then save.")
             self._set_state(READY)
         elif kind == "saved":
             (path,) = payload

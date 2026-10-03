@@ -3,9 +3,11 @@
 ![tests](https://github.com/mstahl302/karaoke-grabber/actions/workflows/ci.yml/badge.svg)
 
 A small macOS app that turns a YouTube karaoke (backing) track into a
-trimmed, correctly named MP3: `<Song Title> - AUDIO - <key>.mp3`.
+trimmed, correctly named MP3: `<Song Title> - AUDIO - <key>.mp3` (the key
+is optional).
 
-**Status:** in development (milestone M1, core engine). The full README
+**Status:** in development (M0–M3 done: the window fetches, trims, fades,
+previews and saves; M4 polish is next). The full README
 arrives with V1; its outline is in
 [docs/dev_environment.md](docs/dev_environment.md) §6.
 

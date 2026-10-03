@@ -2,7 +2,7 @@
 
 **Status:** BACKLOG. Nothing here is in V1. Scope for V1 is defined in
 [product_spec.md](product_spec.md).
-**Date:** 2026-10-02
+**Date:** 2026-10-03
 **Owner:** markstahl
 
 Work after V1 falls into two groups:
@@ -47,6 +47,27 @@ value in seconds (a decimal
 number, e.g. `4.35`). Setting either one updates the other: start with the
 slider, and if it isn't precise enough, type the exact number. Typed
 values are clamped to their slider's range, and End must stay after Start.
+
+### R9. Load audio from a file
+
+*(High priority: planned after R8, ahead of R1.)*
+
+Besides a YouTube link, open an audio file you already have, just to trim,
+fade and save it.
+
+- An **Open file…** button next to Fetch (and ⌘O) picks a local file:
+  MP3, M4A/AAC, WAV, AIFF, FLAC, Opus and anything else ffmpeg reads.
+- The info card shows the file name and duration (from `ffprobe`). The
+  song title is prefilled from the file's title tag, or from its name
+  without the extension. There's no thumbnail or channel.
+- Trim, fades, preview, key and Save work exactly as for a YouTube track.
+  The original file is never changed: Save always writes a new MP3, and
+  the Save dialog starts in the original file's folder.
+- Nothing is downloaded or copied into the cache; ffmpeg reads the file
+  where it is.
+
+*Question:* also allow dragging a file onto the window? Tk needs the
+`tkdnd` extension for that.
 
 ### R1. Save to Google Drive
 
@@ -182,10 +203,10 @@ In increasing order of difficulty:
    pop/theater material. It most often confuses relative major/minor and
    fifths, and it adds a large dependency (NumPy, SciPy).
 
-This isn't too hard: tier 1 is an afternoon. Because the V1 Key dropdown
-is deliberately required with no default, a guess should only be shown
-as a **hint** next to the dropdown, e.g. "Suggested: B-flat (from
-description)". You still pick the key yourself.
+This isn't too hard: tier 1 is an afternoon. Because a guess can be
+wrong, it should only be shown as a **hint** next to the dropdown, e.g.
+"Suggested: B-flat (from description)", never filled in automatically.
+You still pick the key yourself.
 
 ### FR2. Download video
 

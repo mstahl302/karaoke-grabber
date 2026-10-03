@@ -126,6 +126,12 @@ def test_fetch_error_is_friendly_and_logged(all_tools, fake_run):
     assert "This video is unavailable" in settings.LOG_PATH.read_text()
 
 
+def test_key_is_optional(all_tools, fake_tools, tmp_path):
+    code, text = _main(URL, "--title", "Zoo Song", "--out", str(tmp_path))
+    assert code == cli.EXIT_OK, text
+    assert (tmp_path / "Zoo Song - AUDIO.mp3").exists()
+
+
 def test_bad_key_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as e:
         cli.main([URL, "--key", "H"])

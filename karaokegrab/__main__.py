@@ -52,8 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m karaokegrab",
         description="Turn a YouTube karaoke track into a trimmed, named MP3.")
     p.add_argument("url", help="YouTube video link")
-    p.add_argument("--key", required=True, type=_key,
-                   help='the song\'s key, as words: e.g. B-flat, "F-sharp minor"')
+    p.add_argument("--key", type=_key, default=None,
+                   help='the song\'s key, as words: e.g. B-flat, "F-sharp minor" '
+                        '(optional; left out of the file name when not given)')
     p.add_argument("--title", help="song title (default: the YouTube title)")
     p.add_argument("--start", type=_seconds, default=0.0, help="trim start, seconds (default 0)")
     p.add_argument("--end", type=_seconds, default=None, help="trim end, seconds (default: track end)")

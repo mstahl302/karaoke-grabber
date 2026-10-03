@@ -121,17 +121,29 @@ def test_starts_idle_with_save_disabled(fake_tools, app):
     assert str(app.key_box.cget("state")) == "disabled"
 
 
-def test_save_disabled_until_a_key_is_chosen(fake_tools, app):
+def test_save_is_ready_without_a_key(fake_tools, app):
     _fetch(app)
     assert app.state == main.READY
     assert app.title_var.get() == "Me at the zoo"
     assert app.meta_var.get() == "jawed · 19.0 s"
     assert str(app.key_box.cget("state")) == "readonly"
-    assert app.save_blocker() == "pick a key first"
-    assert "pick a key first" in app.save_btn.cget("text")
-    _pick(app, "B-flat")
+    assert app.key_var.get() == main.KEY_NONE
     assert app.save_blocker() == ""
     assert app.save_btn.cget("text") == "Save MP3…"
+    assert app.key_box.cget("values")[0] == main.KEY_NONE   # "— none —" clears a picked key
+
+
+def test_no_key_leaves_it_out_of_the_filename(fake_tools, app, save_to, tmp_path):
+    _fetch(app)
+    for key, name in ((None, "Me at the zoo - AUDIO.mp3"),
+                      ("B-flat", "Me at the zoo - AUDIO - B-flat.mp3"),
+                      (main.KEY_NONE, "Me at the zoo - AUDIO.mp3")):
+        if key:
+            _pick(app, key)
+        app.save()
+        _pump(app, lambda: app.state == main.SAVED)
+        assert save_to["initialfile"] == name
+        assert (tmp_path / "out" / name).exists()
 
 
 def test_save_writes_the_named_full_length_mp3(fake_tools, app, save_to, tmp_path):
@@ -203,8 +215,7 @@ def test_title_and_key_reset_for_a_new_url(fake_tools, app):
     fake_tools.video_json = {**fake_tools.video_json, "id": "other12345", "title": "Another"}
     _fetch(app, "https://youtu.be/other12345")
     assert app.title_var.get() == "Another"
-    assert app.key_var.get() == main.KEY_PLACEHOLDER
-    assert app.save_blocker() == "pick a key first"
+    assert app.key_var.get() == main.KEY_NONE
 
 
 def test_second_fetch_of_the_same_video_uses_the_cache(fake_tools, fake_run, app):

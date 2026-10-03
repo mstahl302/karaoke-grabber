@@ -1,7 +1,7 @@
 # Karaoke Grabber — Product Spec
 
-**Status:** DRAFT rev 0.4 — all open questions resolved
-**Date:** 2026-10-02
+**Status:** DRAFT rev 0.5 — all open questions resolved; the key is optional
+**Date:** 2026-10-03
 **Owner:** markstahl
 **Related:** [architecture.md](architecture.md) · [build_plan.md](build_plan.md) · [dev_environment.md](dev_environment.md) · [roadmap.md](roadmap.md)
 
@@ -33,9 +33,8 @@ use the terminal for this.
   a typical 4-minute track.
 - **No terminal needed** for the everyday workflow.
 - Every saved file follows my naming convention:
-  **`<Song Title> - AUDIO - <key>.mp3`**.
-- Never save a file without a key. The key matters for rehearsals and
-  gigs.
+  **`<Song Title> - AUDIO - <key>.mp3`**, or
+  **`<Song Title> - AUDIO.mp3`** when I don't pick a key.
 
 **Non-goals (V1):**
 
@@ -54,10 +53,11 @@ use the terminal for this.
    This cuts the channel intro, the "subscribe!" outro, or a count-in I
    don't want. Optionally drag the fade slider's handles in to add a fade
    in and/or out (off by default). Listen with the preview buttons.
-4. **Pick the key** from a dropdown. This is required, and there's no
-   default.
+4. **Pick the key** from a dropdown, if I want it in the filename. It's
+   optional; with no key, the filename leaves it out.
 5. **Save.** A standard macOS Save dialog opens with the filename
-   prefilled from the song title and key. I adjust it if needed and save.
+   prefilled from the song title (and the key, if picked). I adjust it if
+   needed and save.
 
 ## 5. V1 features
 
@@ -71,8 +71,8 @@ use the terminal for this.
 | F4 | **Trim** | A slider allows you to trim the track. Visual representation of trim, with read-only numerical values (in seconds) updated on the fly.<br><br>Trim is applied to the preview (below) and on save. |
 | F5 | **Preview by ear** | A row of buttons: **From start** moves the cursor to the trim start and plays. **Start** plays from the cursor. **Stop** pauses and leaves the cursor where it is. **From end** plays the last 10 seconds up to the trim end, leaving the cursor at the end. A playback cursor shows on both sliders, kept in sync; clicking either slider's track moves the cursor there.<br><br>The preview reflects the current trim settings, so it starts and ends based on the trim slider. |
 | F6 | **Fades** | A second slider covering only the trimmed range; it updates as the trim changes. Its two handles move in from the ends to set the fade-in and fade-out, shown as read-only seconds relative to the trim, like the trim slider. Off by default (handles at the ends).<br><br>Preview reflects the current fade settings. |
-| F7 | **Required Key dropdown** | 24 keys, written as words: C, D-flat, D, E-flat, E, F, F-sharp, G, A-flat, A, B-flat, B, and C minor, C-sharp minor, D minor, E-flat minor, E minor, F minor, F-sharp minor, G minor, G-sharp minor, A minor, B-flat minor, B minor. Starts **unselected** and resets for each new URL.<br><br>**Save MP3…** is disabled until a key is picked. |
-| F8 | **Prefilled filename** | The Save dialog proposes `<Song Title> - AUDIO - <key>.mp3` from the song title (F15) and key, e.g. Defying Gravity - AUDIO - B-flat.mp3. V1 doesn't clean up the title automatically. Characters macOS doesn't allow in filenames (/ and :) are replaced. The dialog opens in the last-used folder. |
+| F7 | **Optional Key dropdown** | 24 keys, written as words: C, D-flat, D, E-flat, E, F, F-sharp, G, A-flat, A, B-flat, B, and C minor, C-sharp minor, D minor, E-flat minor, E minor, F minor, F-sharp minor, G minor, G-sharp minor, A minor, B-flat minor, B minor. Starts at **— none —** (no key) and resets for each new URL; choosing — none — clears a picked key.<br><br>The key is optional: with no key, it's left out of the filename (F8). |
+| F8 | **Prefilled filename** | The Save dialog proposes `<Song Title> - AUDIO - <key>.mp3` from the song title (F15) and key, e.g. Defying Gravity - AUDIO - B-flat.mp3, or `<Song Title> - AUDIO.mp3` when no key is picked. V1 doesn't clean up the title automatically. Characters macOS doesn't allow in filenames (/ and :) are replaced. The dialog opens in the last-used folder. |
 | F9 | **Save to local disk** | Saves only to the Mac. |
 | F10 | **Progress & Cancel** | A full-width progress bar and status text under the Save button, for downloading and saving. Cancel works at every stage and never leaves a half-written file. |
 | F11 | **Plain-English errors** | A friendly message, with a **Details** toggle that shows the tool output. If a download fails, the message suggests that yt-dlp may be out of date and how to update it, then the attempt stops. |
@@ -88,11 +88,11 @@ A single window (mockup):
 
 Top to bottom:
 
-- **URL and Fetch**, then the info card (thumbnail, editable song title with a pencil button, channel, duration) with the required **Key** dropdown. Everything below is disabled until a fetch succeeds; the sliders and preview become active once the download finishes.
+- **URL and Fetch**, then the info card (thumbnail, editable song title with a pencil button, channel, duration) with the optional **Key** dropdown. Everything below is disabled until a fetch succeeds; the sliders and preview become active once the download finishes.
 - **Trim:** a slider spanning the whole track. Its two handles set Start and End; under it, the read-only Start and End values in seconds and the trimmed length update as you drag.
 - **Fade:** a second slider spanning only the trimmed range, so it rescales whenever the trim changes. Its handles move in from the ends; under it, the read-only fade-in and fade-out lengths in seconds, relative to the trim. Handles at the ends mean no fade, which is the default.
 - **Preview:** From start, Start (from the cursor), Stop, From end. A playback cursor shows on both sliders at the same moment in the song.
-- **Save:** a full-width **Save MP3…** button. While it's disabled, it says what's missing, e.g. "pick a key first". The save progress bar, status and Cancel sit beneath it.
+- **Save:** a full-width **Save MP3…** button. While it's disabled, it says why, e.g. "fetch a video first". The save progress bar, status and Cancel sit beneath it.
 
 ## 7. App icon
 
@@ -116,6 +116,8 @@ designs and the uncommitted Feature requests live in
   editable value in seconds (a decimal number). Set either one and the other
   updates: start with the slider, then fine-tune the number if it isn't
   precise enough.
+- **R9 Load audio from a file.** Open a song I already have (MP3, M4A,
+  WAV and so on) instead of a YouTube link, just to trim, fade and save it.
 - **R1 Save to Google Drive.** Local disk stays the default; a control
   switches the destination to Drive. The design includes Google account
   sign-in and a Drive folder picker. *Alternative:* install Google Drive
@@ -132,3 +134,11 @@ designs and the uncommitted Feature requests live in
 ## 9. Open questions
 
 None right now.
+
+## Alternatives considered
+
+- **A required key (rejected 2026-10-03).** V1 first made the Key
+  dropdown required, with Save disabled until a key was picked, so no
+  file could be saved without one. In use it got in the way, so the key
+  became optional and is simply left out of the filename when not
+  picked.

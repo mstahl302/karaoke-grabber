@@ -1,4 +1,5 @@
-"""The saved file's name: ``<Song Title> - AUDIO - <key>.mp3`` (product spec F8)."""
+"""The saved file's name: ``<Song Title> - AUDIO - <key>.mp3``, or
+``<Song Title> - AUDIO.mp3`` when no key is chosen (product spec F8)."""
 
 from __future__ import annotations
 
@@ -22,5 +23,7 @@ def clean_title(title: str) -> str:
     return t or UNTITLED
 
 
-def filename(title: str, key: str) -> str:
-    return f"{clean_title(title)} - AUDIO - {key}.mp3"
+def filename(title: str, key: str | None = None) -> str:
+    if key:
+        return f"{clean_title(title)} - AUDIO - {key}.mp3"
+    return f"{clean_title(title)} - AUDIO.mp3"

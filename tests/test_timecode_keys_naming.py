@@ -47,6 +47,12 @@ def test_filename_convention():
     assert naming.filename("Defying Gravity", "B-flat") == "Defying Gravity - AUDIO - B-flat.mp3"
 
 
+def test_filename_without_a_key():
+    assert naming.filename("Defying Gravity") == "Defying Gravity - AUDIO.mp3"
+    assert naming.filename("Defying Gravity", None) == "Defying Gravity - AUDIO.mp3"
+    assert naming.filename("Defying Gravity", "") == "Defying Gravity - AUDIO.mp3"
+
+
 @pytest.mark.parametrize("title, cleaned", [
     ("AC/DC: Back in Black", "AC-DC- Back in Black"),
     ("  lots   of\tspace \n", "lots of space"),

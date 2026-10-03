@@ -83,7 +83,7 @@ modules that run external tools.
 | 1.1 | `tools.py` | Find `yt-dlp`, `ffmpeg`, `ffprobe`, `deno` in `/opt/homebrew/bin`, `/usr/local/bin` and `PATH`. Report each missing tool with its `brew install` command. Build the PATH passed to subprocesses. | Fake filesystem: found, missing, Finder-style minimal PATH. |
 | 1.2 | `timecode.py` | Format seconds as `4.5 s` and `5:34.5`. (Parsing arrives with R8.) | Rounding, hours, zero. |
 | 1.3 | `keys.py` | The 24 key names in dropdown order. | Count, uniqueness, order. |
-| 1.4 | `naming.py` | `(song title, key) → "<Song Title> - AUDIO - <key>.mp3"`: replace `/` and `:`, trim and collapse whitespace, cap the length. | Odd characters, empty title, long title. |
+| 1.4 | `naming.py` | `(song title, key) → "<Song Title> - AUDIO - <key>.mp3"` (no key: `"<Song Title> - AUDIO.mp3"`): replace `/` and `:`, trim and collapse whitespace, cap the length. | Odd characters, empty title, long title. |
 | 1.5 | `fetch.py` | `yt-dlp -J --no-playlist <url>` → `VideoInfo` (id, title, channel, duration, thumbnail URL). Fetch the thumbnail as PNG. Friendly errors for invalid, private, or unavailable videos. | Parse saved JSON samples; error mapping. |
 | 1.6 | `cache.py` | Cache path per video id, reuse when present, prune to the 10 most recent. | Temp dirs: reuse, prune order. |
 | 1.7 | `download.py` | `yt-dlp -f bestaudio` into the cache with `--newline --progress-template`. Parse progress, support cancel (kill the process group, delete partial files). | Progress-line parser; cancel cleanup with a fake process. |
@@ -115,10 +115,11 @@ or fade yet).
 6. **Editable song title (F15).** Prefilled from the YouTube title. The
    pencil button opens a sheet with a text field: Return saves, Esc
    cancels. Resets for each new URL.
-7. **Key dropdown (F7).** Read-only combobox, starts unselected, resets
+7. **Key dropdown (F7).** Read-only combobox, optional (starts at — none —), resets
    for each new URL.
 8. **Save (F8, F9, F10).** Full-width button, disabled with a reason
-   ("pick a key first") until the state is Ready and a key is chosen.
+   ("fetch a video first") until the state is Ready. (The key was
+   required at first; it became optional on 2026-10-03.)
    Opens the native Save dialog with the prefilled name in the last-used
    folder, then renders the MP3 with progress and Cancel.
 9. **Errors (F11).** A friendly message with a Details toggle showing the
@@ -211,7 +212,7 @@ Every V1 feature in the product spec, and the milestone that delivers it.
 | F4 Trim | M1 (engine), M3 (UI) |
 | F5 Preview by ear | M3 |
 | F6 Fades | M1 (engine), M3 (UI) |
-| F7 Required Key dropdown | M2 |
+| F7 Optional Key dropdown | M2 |
 | F8 Prefilled filename | M1 (naming), M2 (dialog) |
 | F9 Save to local disk | M2 |
 | F10 Progress & Cancel | M2 |

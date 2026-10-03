@@ -49,7 +49,7 @@ karaokegrab/
   fetch.py              yt-dlp --dump-json → VideoInfo (id, title, channel, duration, thumbnail); title prefills the song title
   download.py           yt-dlp best-audio download into the cache; progress parsing; cancel
   keys.py               the 24 key names in words, e.g. B-flat, C-sharp minor (dropdown + filename)
-  naming.py             pure: (song title, key) → "<Song Title> - AUDIO - <key>.mp3", with / and : replaced
+  naming.py             pure: (song title, key?) → "<Song Title> - AUDIO - <key>.mp3" (no key: "<Song Title> - AUDIO.mp3"), / and : replaced
   timecode.py           pure: format seconds for the read-only trim values (parsing arrives with R8)
   trim.py               pure: TrimSpec(start, end, fade_in, fade_out) → ffmpeg argv
   render.py             run ffmpeg for final MP3 + preview clips; progress; cancel
@@ -82,8 +82,8 @@ build.sh / run.sh       PyInstaller build / build-and-open
 `Idle → Fetching → Downloading → Ready → Saving → Saved` (back to
 `Ready`). Also `Error`, and `Cancelled → Idle`.
 
-- *Ready* turns on the trim and preview controls. **Save** is enabled
-  only when the state is *Ready* **and** a key is selected.
+- *Ready* turns on the trim and preview controls and enables **Save**.
+  The key is optional.
 - Cancel during Fetching or Downloading clears the info card and goes to
   *Cancelled*. Cancel during Saving keeps the download and goes back to
   *Ready*, so you can save again.
@@ -196,6 +196,11 @@ The V1 milestones (M0–M5), their steps and exit criteria live in
   run on a worker thread from the locally rendered MP3. See roadmap.md
   for the scope and token-expiry gotchas, and the no-code alternative of
   Google Drive for desktop.
+- **R9 Load audio from a file:** an **Open file…** control beside Fetch.
+  `ffprobe` gives the duration and any title tag, which fill a
+  `VideoInfo`-like source with no thumbnail; `audio` points at the file
+  itself, so there's no download and no cache copy. Trim, render, player
+  and naming are unchanged.
 - **R8 Precise trim values:** two-way binding between each slider handle
   and an editable Entry (`timecode.parse` + clamping), all in `main.py`
   state, with no engine changes.

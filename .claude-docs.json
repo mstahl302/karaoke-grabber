@@ -23,8 +23,8 @@
       "doc_id": "34dd15ed-d25a-48a4-a1fd-440f3ea723b0",
       "tab_id": "7f45893b-3b59",
       "body_id": "f06343ac-7c84",
-      "synced_rev": 33,
-      "synced_sha256": "9a716d00e143f8ef7e1effc9e094219937cd7674a199c4f44476528d7f960bcc"
+      "synced_rev": 35,
+      "synced_sha256": "c93b2515a6d94dd64f2a9f7a7203d01fa30183b4a81c0932c182e1644978ea84"
     },
     "docs/dev_environment.md": {
       "title": "Karaoke Grabber — Dev Environment",

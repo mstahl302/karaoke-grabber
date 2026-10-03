@@ -57,6 +57,7 @@ karaokegrab/
   cache.py              one cache folder per video id (audio, info.json, thumb.png); prune to last ~10
   proc.py               run one external tool: stream stdout, keep stderr, cancel (kills its process group)
   settings.py           JSON settings (last save folder, fade defaults) + log file
+  widgets.py            colour-filled Label-based button (aqua ignores tk.Button colours), from Music Printer
 tests/                  pytest; subprocess mocked; no network
 assets/                 icon.svg (source) → icon.icns via make_icon.py
 docs/                   product_spec, architecture, dev_environment, roadmap
@@ -77,11 +78,14 @@ build.sh / run.sh       PyInstaller build / build-and-open
 
 **UI states:**
 
-`Idle → Fetching → Downloading → Ready → Rendering → Saved` (back to
+`Idle → Fetching → Downloading → Ready → Saving → Saved` (back to
 `Ready`). Also `Error`, and `Cancelled → Idle`.
 
 - *Ready* turns on the trim and preview controls. **Save** is enabled
   only when the state is *Ready* **and** a key is selected.
+- Cancel during Fetching or Downloading clears the info card and goes to
+  *Cancelled*. Cancel during Saving keeps the download and goes back to
+  *Ready*, so you can save again.
 - A new URL resets the song title (to the new YouTube title), the trim slider (to the full length), the fades (to none) and the key.
 
 ## 5. Key design decisions

@@ -182,6 +182,14 @@ Draw the track's actual waveform (decoded with ffmpeg) behind the V1 trim
 slider on a Tk Canvas, so you can see the intro, the outro and any
 silences while you drag the handles.
 
+### R10. Links from other sites
+
+*(Low priority: near the end of the Roadmap.)*
+
+yt-dlp also works with Vimeo, SoundCloud and hundreds of other sites. V1
+accepts YouTube links only; R10 lets through any link yt-dlp can handle,
+with no promises. Some backing tracks live on SoundCloud.
+
 ---
 
 ## Feature requests

@@ -130,6 +130,8 @@ designs and the uncommitted Feature requests live in
   heuristic isn't sure.
 - **R5 Loudness normalize.** Saved tracks all play at a similar volume.
 - **R6 Waveform view.** Show the track's waveform behind the trim slider.
+- **R10 Links from other sites.** Accept Vimeo, SoundCloud and other links
+  yt-dlp can handle, not just YouTube.
 
 ## 9. Open questions
 

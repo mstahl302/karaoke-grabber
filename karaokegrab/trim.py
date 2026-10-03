@@ -4,10 +4,12 @@ All times are seconds. ``start``/``end`` are positions in the source track;
 ``fade_in``/``fade_out`` are lengths relative to the trimmed range, so the
 fade-out starts at ``length - fade_out`` in the output.
 
-The final MP3 and every preview come from the same filter chain, so the
-saved file matches what the preview played. A preview from a cursor still
-decodes from the trim start and drops audio up to the cursor with an
-output-side ``-ss``, so a fade-in is heard exactly as it will be saved.
+The final MP3 and every preview use the same fades, so the saved file
+matches what the preview played. A preview seeks straight to the cursor
+and keeps the source timestamps (``-copyts``), so its fades are placed at
+their absolute times in the track: the clip is sample-for-sample the
+matching part of the final render, and starting late in a long track
+costs almost nothing.
 """
 
 from __future__ import annotations
@@ -100,11 +102,24 @@ def from_end_cursor(spec: TrimSpec) -> float:
     return max(spec.start, spec.end - PREVIEW_TAIL)
 
 
+def absolute_filter_chain(spec: TrimSpec) -> str:
+    """The fades of *spec* placed at source-track times (for ``-copyts``)."""
+    parts = []
+    if spec.fade_in > 0:
+        parts.append(f"afade=t=in:st={_num(spec.start)}:d={_num(spec.fade_in)}")
+    if spec.fade_out > 0:
+        parts.append(f"afade=t=out:st={_num(spec.end - spec.fade_out)}:d={_num(spec.fade_out)}")
+    return ",".join(parts)
+
+
 def preview_argv(ffmpeg: str, source: Path, spec: TrimSpec, cursor: float,
                  out: Path) -> list[str]:
     """A WAV from *cursor* (source time) to the trim end, for afplay."""
-    argv = _common(ffmpeg, source, spec)
-    offset = preview_offset(spec, cursor)
-    if offset > 0:
-        argv += ["-ss", _num(offset)]
+    at = spec.start + preview_offset(spec, cursor)
+    argv = [ffmpeg, "-hide_banner", "-nostdin", "-nostats", "-loglevel", "error", "-y",
+            "-copyts", "-ss", _num(at), "-t", _num(spec.end - at), "-i", str(source),
+            "-map", "0:a:0", "-vn"]
+    chain = absolute_filter_chain(spec)
+    if chain:
+        argv += ["-af", chain]
     return argv + ["-c:a", "pcm_s16le", "-progress", "pipe:1", "-f", "wav", str(out)]

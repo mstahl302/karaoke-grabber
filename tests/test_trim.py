@@ -78,22 +78,29 @@ def test_mp3_argv_without_fades_has_no_filter():
     assert argv[argv.index("-t") + 1] == "180"
 
 
-def test_preview_from_the_trim_start_has_no_output_seek():
-    spec = TrimSpec(10, 70, 2, 3)
-    argv = trim.preview_argv("ffmpeg", SRC, spec, cursor=10, out=Path("/tmp/p.wav.part"))
-    assert argv.count("-ss") == 1
-    assert argv[-7:] == ["-c:a", "pcm_s16le", "-progress", "pipe:1", "-f", "wav", "/tmp/p.wav.part"]
+def test_absolute_filter_chain():
+    assert trim.absolute_filter_chain(TrimSpec(10, 70)) == ""
+    assert trim.absolute_filter_chain(TrimSpec(10, 70, 2, 3)) == \
+        "afade=t=in:st=10:d=2,afade=t=out:st=67:d=3"
 
 
-def test_preview_from_cursor_keeps_the_same_fades():
+def test_preview_argv_snapshot():
     spec = TrimSpec(10, 70, 2, 3)
-    argv = trim.preview_argv("ffmpeg", SRC, spec, cursor=40.25, out=Path("p.wav"))
-    # input seek to the trim start, then drop 30.25 s of output: fades line up with the save
-    assert argv[argv.index("-ss") + 1] == "10"
-    assert argv[argv.index("-af") + 1] == trim.filter_chain(spec)
-    second = argv.index("-ss", argv.index("-i"))
-    assert argv[second + 1] == "30.25"
-    assert second > argv.index("-af")
+    assert trim.preview_argv("ffmpeg", SRC, spec, cursor=40.25, out=Path("/tmp/p.wav.part")) == [
+        "ffmpeg", "-hide_banner", "-nostdin", "-nostats", "-loglevel", "error", "-y",
+        "-copyts", "-ss", "40.25", "-t", "29.75", "-i", "/cache/abc/audio.webm",
+        "-map", "0:a:0", "-vn",
+        "-af", "afade=t=in:st=10:d=2,afade=t=out:st=67:d=3",
+        "-c:a", "pcm_s16le", "-progress", "pipe:1", "-f", "wav", "/tmp/p.wav.part",
+    ]
+
+
+def test_preview_cursor_outside_the_trim_is_clamped():
+    spec = TrimSpec(10, 70)
+    before = trim.preview_argv("ffmpeg", SRC, spec, cursor=0, out=Path("p.wav"))
+    assert before[before.index("-ss") + 1] == "10" and before[before.index("-t") + 1] == "60"
+    after = trim.preview_argv("ffmpeg", SRC, spec, cursor=500, out=Path("p.wav"))
+    assert after[after.index("-ss") + 1] == "69.9"
 
 
 def test_preview_offset_is_clamped_to_the_trim():

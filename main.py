@@ -2,9 +2,9 @@
 """Karaoke Grabber — Tkinter front-end and workflow state machine.
 
 Paste a YouTube link, Fetch, check the info card, tidy the song title,
-pick the key, Save. M2 saves the whole track; the Trim, Fade and Preview
-sections are placeholders until M3. See docs/product_spec.md §4–§6 and
-docs/architecture.md §4.
+trim and fade with the two sliders, listen with the preview buttons, pick
+the key, Save. See docs/product_spec.md §4–§6 and docs/architecture.md §4
+and §5.3.
 
 Work runs on one background worker at a time. Workers never touch
 widgets: they put messages on ``self._q``, which ``_pump`` drains on the
@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import math
 import queue
+import shutil
+import tempfile
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
@@ -22,7 +24,9 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from karaokegrab import (cache, download, fetch, keys, naming, proc, render,
-                         settings, timecode, tools)
+                         settings, timecode, tools, trim)
+from karaokegrab.player import Player
+from karaokegrab.rangeslider import RangeSlider
 from karaokegrab.trim import TrimSpec
 from karaokegrab.widgets import HAND, MAGENTA, PURPLE, Button
 
@@ -30,6 +34,7 @@ APP_NAME = "Karaoke Grabber"
 KEY_PLACEHOLDER = "— choose —"
 THUMB_W, THUMB_H = 160, 90
 PUMP_MS = 50
+TICK_MS = 50          # playback cursor refresh
 
 # --- states (docs/architecture.md §4) ---
 IDLE = "idle"
@@ -46,6 +51,8 @@ CARD_BG = "#f6f2f9"
 CARD_EDGE = "#e2d8ea"
 MUTED = "#76707c"
 WARN = MAGENTA
+PILL_BG = "#eeebf2"
+DARK = "#4d4458"
 
 
 class TitleSheet(tk.Toplevel):
@@ -121,11 +128,29 @@ class App(tk.Tk):
         self.details = ""
         self._thumb_img: tk.PhotoImage | None = None
 
+        # Trim, fades and the playback cursor (M3). spec is always clamped.
+        self.spec: TrimSpec | None = None
+        self.cursor = 0.0
+        self.player = Player()
+        self._tmp = Path(tempfile.mkdtemp(prefix="karaoke-grabber-"))
+        self._preview_token = 0
+        self.preparing = False          # a preview clip is being rendered
+        self._clip: Path | None = None
+        self._ticking = False
+
         self.url_var = tk.StringVar()
         self.title_var = tk.StringVar()
         self.meta_var = tk.StringVar()
         self.key_var = tk.StringVar(value=KEY_PLACEHOLDER)
         self.status_var = tk.StringVar()
+        self.trim_note = tk.StringVar()
+        self.fade_note = tk.StringVar()
+        self.cursor_note = tk.StringVar()
+        self.start_var = tk.StringVar(value="—")
+        self.end_var = tk.StringVar(value="—")
+        self.length_var = tk.StringVar()
+        self.fade_in_var = tk.StringVar(value="—")
+        self.fade_out_var = tk.StringVar(value="—")
 
         self.title(APP_NAME)
         self.minsize(640, 600)
@@ -193,14 +218,30 @@ class App(tk.Tk):
         self.f_small = tkfont.Font(family=fam, size=size - 1)
         self.f_save = tkfont.Font(family=fam, size=size + 3, weight="bold")
 
-    def _section(self, parent, row: int, text: str, note: str = "") -> ttk.Frame:
+    def _section(self, parent, row: int, text: str, note: tk.StringVar | None = None) -> ttk.Frame:
         head = ttk.Frame(parent)
         head.grid(row=row, column=0, sticky="ew", pady=(14, 4))
         head.columnconfigure(0, weight=1)
         tk.Label(head, text=text.upper(), font=self.f_head, fg=MUTED).grid(row=0, column=0, sticky="w")
-        if note:
-            tk.Label(head, text=note, font=self.f_small, fg=MUTED).grid(row=0, column=1, sticky="e")
+        if note is not None:
+            tk.Label(head, textvariable=note, font=self.f_small, fg=MUTED).grid(row=0, column=1, sticky="e")
         return head
+
+    def _values_row(self, parent, row: int, left: str, left_var: tk.StringVar,
+                    middle: tk.StringVar | str, right: str, right_var: tk.StringVar) -> None:
+        """'Start [4.5 s]     Trimmed length 5:34.5     End [339.0 s]'"""
+        f = ttk.Frame(parent)
+        f.grid(row=row, column=0, sticky="ew", pady=(6, 0))
+        f.columnconfigure(2, weight=1)
+        tk.Label(f, text=left).grid(row=0, column=0, sticky="w")
+        tk.Label(f, textvariable=left_var, bg=PILL_BG, width=9, padx=6, pady=2).grid(
+            row=0, column=1, sticky="w", padx=(8, 0))
+        mid = (tk.Label(f, textvariable=middle, fg=MUTED) if isinstance(middle, tk.StringVar)
+               else tk.Label(f, text=middle, fg=MUTED))
+        mid.grid(row=0, column=2)
+        tk.Label(f, text=right).grid(row=0, column=3, sticky="e")
+        tk.Label(f, textvariable=right_var, bg=PILL_BG, width=9, padx=6, pady=2).grid(
+            row=0, column=4, sticky="e", padx=(8, 0))
 
     def _build(self) -> None:
         root = ttk.Frame(self, padding=(20, 16, 20, 16))
@@ -253,18 +294,41 @@ class App(tk.Tk):
         self.key_hint = tk.Label(krow, text="required", fg=WARN, bg=CARD_BG)
         self.key_hint.grid(row=0, column=2, padx=(10, 0))
 
-        # Placeholders for M3 (Trim, Fade, Preview)
-        self._section(root, 2, "Trim", "arrives in M3")
-        self._placeholder(root, 3, "Two handles to cut the intro and outro.")
-        self._section(root, 4, "Fade", "arrives in M3")
-        self._placeholder(root, 5, "Fade in and out within the trimmed range. No fade by default.")
-        self._section(root, 6, "Preview", "arrives in M3")
+        # Trim (F4): the whole track
+        self._section(root, 2, "Trim", self.trim_note)
+        tbox = ttk.Frame(root)
+        tbox.grid(row=3, column=0, sticky="ew")
+        tbox.columnconfigure(0, weight=1)
+        self.trim_slider = RangeSlider(tbox, style="trim", height=56, min_gap=trim.MIN_LENGTH,
+                                       on_change=self._trim_changed, on_seek=self._seek_trim)
+        self.trim_slider.grid(row=0, column=0, sticky="ew")
+        self._values_row(tbox, 1, "Start", self.start_var, self.length_var, "End", self.end_var)
+
+        # Fade (F6): only the trimmed range; handles move in from the ends
+        self._section(root, 4, "Fade", self.fade_note)
+        fbox = ttk.Frame(root)
+        fbox.grid(row=5, column=0, sticky="ew")
+        fbox.columnconfigure(0, weight=1)
+        self.fade_slider = RangeSlider(fbox, style="fade", height=64, min_gap=0.0,
+                                       on_change=self._fade_changed, on_seek=self._seek_fade)
+        self.fade_slider.grid(row=0, column=0, sticky="ew")
+        self._values_row(fbox, 1, "Fade in", self.fade_in_var,
+                         "Handles at the ends = no fade (default)", "Fade out", self.fade_out_var)
+
+        # Preview (F5)
+        self._section(root, 6, "Preview", self.cursor_note)
         prow = ttk.Frame(root)
         prow.grid(row=7, column=0, sticky="ew")
-        for i, label in enumerate(("From start", "Start", "Stop", "From end")):
+        self.preview_btns = {}
+        for i, (key, label, colour, cmd) in enumerate((
+                ("from_start", "⏮  From start", DARK, self.preview_from_start),
+                ("start", "▶  Start", PURPLE, self.preview_start),
+                ("stop", "■  Stop", DARK, self.preview_stop),
+                ("from_end", "⏭  From end", DARK, self.preview_from_end))):
             prow.columnconfigure(i, weight=1, uniform="p")
-            ttk.Button(prow, text=label, state="disabled").grid(
-                row=0, column=i, sticky="ew", padx=(0 if i == 0 else 6, 0))
+            b = Button(prow, label, colour, cmd)
+            b.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else 8, 0))
+            self.preview_btns[key] = b
 
         # Save (F8–F10) + progress, status, Cancel, error Details (F11)
         ttk.Separator(root).grid(row=8, column=0, sticky="ew", pady=(18, 0))
@@ -297,11 +361,6 @@ class App(tk.Tk):
                                    relief="flat", bg="#f4f4f6", padx=8, pady=6)
         self.details_shown = False
 
-    def _placeholder(self, parent, row: int, text: str) -> None:
-        f = tk.Frame(parent, bg="#f4f4f6", highlightthickness=1, highlightbackground="#e4e4e8")
-        f.grid(row=row, column=0, sticky="ew")
-        tk.Label(f, text=text, fg="#a09aa6", bg="#f4f4f6").pack(padx=12, pady=12, anchor="w")
-
     def _blank_image(self) -> tk.PhotoImage:
         # A Label with an image sizes in pixels, so the placeholder matches the thumbnail.
         self._blank = tk.PhotoImage(width=THUMB_W, height=THUMB_H)
@@ -326,7 +385,10 @@ class App(tk.Tk):
             self.cancel_link.grid_remove()
         if state != ERROR:
             self._hide_details()
+        if state in BUSY:
+            self._stop_preview()
         self._refresh_save()
+        self._refresh_editing()
 
     def _key(self) -> str | None:
         return keys.lookup(self.key_var.get())
@@ -368,6 +430,10 @@ class App(tk.Tk):
         self._thumb_img = None
         self.thumb.configure(image=self._blank, text="♪")
         self.progress.configure(value=0)
+        self._stop_preview()
+        self.spec = None
+        self.cursor = 0.0
+        self._sync_sliders()
 
     # ------------------------------------------------------------ actions
     def fetch(self) -> None:
@@ -408,7 +474,7 @@ class App(tk.Tk):
         out = Path(path)
         if out.suffix.lower() != ".mp3":
             out = out.with_name(out.name + ".mp3")
-        spec = TrimSpec().clamped(self.info.duration)
+        spec = self.spec or TrimSpec().clamped(self.info.duration)
         self.progress.configure(value=0)
         self.status_var.set("Saving…")
         self._set_state(SAVING)
@@ -434,6 +500,181 @@ class App(tk.Tk):
         if self.state in BUSY and self._cancel is not None:
             self._cancel.set()
             self.status_var.set("Cancelling…")
+
+    # ------------------------------------------------------------ trim, fades, cursor (M3)
+    def _can_edit(self) -> bool:
+        """Sliders and preview work once the audio is downloaded and nothing is busy."""
+        return self.audio is not None and self.spec is not None and self.state not in BUSY
+
+    def _refresh_editing(self) -> None:
+        on = self._can_edit()
+        self.trim_slider.set_enabled(on)
+        self.fade_slider.set_enabled(on)
+        active = self.player.playing or self.preparing
+        for key, btn in self.preview_btns.items():
+            btn.set_enabled(on and (active if key == "stop" else True))
+
+    def _sync_sliders(self) -> None:
+        """Push self.spec and self.cursor into both sliders and all the labels."""
+        fmt = timecode.format_seconds
+        spec = self.spec
+        if spec is None:
+            for sl in (self.trim_slider, self.fade_slider):
+                sl.set_range(0, 1)
+                sl.set_values(0, 1)
+                sl.set_cursor(None)
+            for v in (self.start_var, self.end_var, self.fade_in_var, self.fade_out_var):
+                v.set("—")
+            for v in (self.length_var, self.trim_note, self.fade_note, self.cursor_note):
+                v.set("")
+            self._refresh_editing()
+            return
+        duration = self.info.duration if self.info else spec.end
+        self.trim_slider.set_range(0, duration)
+        self.trim_slider.set_values(spec.start, spec.end)
+        self.fade_slider.set_range(0, spec.length)
+        self.fade_slider.set_values(spec.fade_in, spec.length - spec.fade_out)
+        self.start_var.set(fmt(spec.start))
+        self.end_var.set(fmt(spec.end))
+        self.length_var.set(f"Trimmed length {fmt(spec.length)}")
+        self.fade_in_var.set(fmt(spec.fade_in))
+        self.fade_out_var.set(fmt(spec.fade_out))
+        self.trim_note.set(f"whole track 0:00 – {fmt(duration)}")
+        self.fade_note.set(f"trimmed range 0:00 – {fmt(spec.length)}")
+        self._show_cursor()
+        self._refresh_editing()
+
+    def _show_cursor(self) -> None:
+        spec = self.spec
+        if spec is None:
+            return
+        self.trim_slider.set_cursor(self.cursor)
+        self.fade_slider.set_cursor(self.cursor - spec.start)
+        into = max(0.0, self.cursor - spec.start)
+        self.cursor_note.set(f"cursor {timecode.format_seconds(self.cursor)} "
+                             f"({timecode.format_seconds(into)} into trim)")
+
+    def _set_spec(self, spec: TrimSpec) -> None:
+        assert self.info is not None
+        self.spec = spec.clamped(self.info.duration)
+        self.cursor = min(max(self.cursor, self.spec.start), self.spec.end)
+        self._sync_sliders()
+
+    def _trim_changed(self, start: float, end: float, final: bool) -> None:
+        if self.spec is None:
+            return
+        self._stop_preview()            # changing the trim while playing stops playback
+        self._set_spec(TrimSpec(start, end, self.spec.fade_in, self.spec.fade_out))
+
+    def _fade_changed(self, a: float, b: float, final: bool) -> None:
+        if self.spec is None:
+            return
+        self._stop_preview()
+        s = self.spec
+        self._set_spec(TrimSpec(s.start, s.end, a, s.length - b))
+
+    def _seek_trim(self, t: float) -> None:
+        self._seek(t)
+
+    def _seek_fade(self, t: float) -> None:
+        if self.spec is not None:
+            self._seek(self.spec.start + t)
+
+    def _seek(self, t: float) -> None:
+        """A click on either slider's track moves the cursor there; if a
+        preview is playing it carries on from the new spot."""
+        if self.spec is None:
+            return
+        was_active = self.player.playing or self.preparing
+        self.cursor = min(max(t, self.spec.start), self.spec.end)
+        self._show_cursor()
+        if was_active:
+            self._play()
+
+    # -- preview buttons (F5)
+    def preview_from_start(self) -> None:
+        if self._can_edit():
+            self.cursor = self.spec.start
+            self._play()
+
+    def preview_start(self) -> None:
+        if self._can_edit():
+            if self.cursor >= self.spec.end - 0.05:     # at the end: start over
+                self.cursor = self.spec.start
+            self._play()
+
+    def preview_from_end(self) -> None:
+        if self._can_edit():
+            self.cursor = trim.from_end_cursor(self.spec)
+            self._play()
+
+    def preview_stop(self) -> None:
+        self._stop_preview()
+
+    def _stop_preview(self) -> None:
+        """Stop playback (or a clip being prepared); the cursor stays where
+        playback reached."""
+        self._preview_token += 1
+        self.preparing = False
+        pos = self.player.stop()
+        if pos is not None and self.spec is not None:
+            self.cursor = min(max(pos, self.spec.start), self.spec.end)
+            self._show_cursor()
+        self._drop_clip()
+        self._refresh_editing()
+
+    def _drop_clip(self) -> None:
+        if self._clip is not None:
+            self._clip.unlink(missing_ok=True)
+            self._clip = None
+
+    def _play(self) -> None:
+        """Render a clip from the cursor to the trim end (on a worker), then play it."""
+        cursor = self.cursor
+        self._stop_preview()            # would move the cursor to where the old clip had got to
+        self.cursor = cursor
+        assert self.spec is not None and self.audio is not None
+        self._preview_token += 1
+        self.preparing = True
+        self._refresh_editing()
+        self._show_cursor()
+        at = self.spec.start + trim.preview_offset(self.spec, self.cursor)
+        clip = self._tmp / f"preview-{self._preview_token}.wav"
+        threading.Thread(target=self._preview_worker, daemon=True,
+                         args=(self._token, self._preview_token, self.tools["ffmpeg"],
+                               self.audio, self.spec, self.cursor, at, clip)).start()
+
+    def _preview_worker(self, token: int, ptoken: int, ffmpeg: str, audio: Path,
+                        spec: TrimSpec, cursor: float, at: float, clip: Path) -> None:
+        try:
+            out = render.render_preview(ffmpeg, audio, spec, cursor, clip)
+            if out is not None:
+                self._post(token, "preview_ready", ptoken, out, at)
+        except render.RenderError as e:
+            self._post(token, "preview_error", ptoken, e.message, e.details)
+        except Exception as e:
+            self._post(token, "preview_error", ptoken, f"Preview failed: {e}", repr(e))
+
+    def _start_ticking(self) -> None:
+        if not self._ticking:
+            self._ticking = True
+            self._after(TICK_MS, self._tick)
+
+    def _tick(self) -> None:
+        """Advance the cursor while a clip plays; at the clip's end the
+        cursor rests at the trim end."""
+        if self.player.playing and self.spec is not None:
+            self.cursor = min(self.player.position(), self.spec.end)
+            self._show_cursor()
+            self._after(TICK_MS, self._tick)
+            return
+        self._ticking = False
+        if self.player.finished and self.spec is not None:
+            self.player.reset()
+            self._drop_clip()
+            self.cursor = self.spec.end
+            self._show_cursor()
+            self._refresh_editing()
 
     # ------------------------------------------------------------ workers (no widgets here)
     def _fetch_worker(self, token: int, cancel: proc.Cancel, url: str, found: tools.Toolset) -> None:
@@ -487,6 +728,9 @@ class App(tk.Tk):
         if kind == "info":
             (info,) = payload
             self.info = info
+            self.spec = TrimSpec().clamped(info.duration)
+            self.cursor = self.spec.start
+            self._sync_sliders()
             self.title_var.set(info.title)
             self.meta_var.set(" · ".join(x for x in (info.channel, timecode.format_seconds(info.duration)) if x))
             self.status_var.set("Downloading…")
@@ -504,7 +748,7 @@ class App(tk.Tk):
             (audio,) = payload
             self.audio = audio
             self.progress.configure(value=1.0)
-            self.status_var.set("Ready. Pick the key, then save.")
+            self.status_var.set("Ready. Trim and preview, pick the key, then save.")
             self._set_state(READY)
         elif kind == "saved":
             (path,) = payload
@@ -523,6 +767,25 @@ class App(tk.Tk):
                 self._reset_for_new_url()
                 self.status_var.set("Cancelled.")
                 self._set_state(CANCELLED)
+        elif kind == "preview_ready":
+            ptoken, clip, at = payload
+            if ptoken != self._preview_token or not self.preparing:
+                clip.unlink(missing_ok=True)
+                return
+            self.preparing = False
+            self._clip = clip
+            self.player.play(clip, at)
+            self.cursor = at
+            self._show_cursor()
+            self._refresh_editing()
+            self._start_ticking()
+        elif kind == "preview_error":
+            ptoken, message, details = payload
+            if ptoken == self._preview_token:
+                self.preparing = False
+                self._refresh_editing()
+                self.details = details
+                self.status_var.set(message)
         elif kind == "error":
             message, details = payload
             if details:
@@ -580,6 +843,8 @@ class App(tk.Tk):
         self._closing = True
         if self._cancel is not None:
             self._cancel.set()            # kills any running yt-dlp / ffmpeg
+        self.player.stop()
+        shutil.rmtree(self._tmp, ignore_errors=True)
         for tid in list(self._afters):
             try:
                 self.after_cancel(tid)

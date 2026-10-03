@@ -41,6 +41,7 @@ class Tools:
         self.hold_download = False
         self.hold_save = False
         self.save_argv: list[str] | None = None
+        self.preview_argvs: list[list[str]] = []
         fake_run.on(lambda a: "-J" in a, self.info)
         fake_run.on(lambda a: "--write-thumbnail" in a, self.thumb)
         fake_run.on(lambda a: "--progress-template" in a, self.download)
@@ -63,7 +64,10 @@ class Tools:
         return result(argv)
 
     def ffmpeg(self, argv, on_line, cancel):
-        self.save_argv = argv
+        if argv[-2] == "wav":
+            self.preview_argvs.append(argv)
+        else:
+            self.save_argv = argv
         Path(argv[-1]).write_bytes(b"mp3")           # the .part file
         on_line("out_time_us=9500000")
         if self.hold_save:
@@ -141,7 +145,7 @@ def test_save_writes_the_named_full_length_mp3(fake_tools, app, save_to, tmp_pat
     assert not Path(str(saved) + ".part").exists()
     argv = fake_tools.save_argv
     assert argv[argv.index("-ss") + 1] == "0" and argv[argv.index("-t") + 1] == "19"
-    assert "-af" not in argv                      # M2 saves the whole track, no fades
+    assert "-af" not in argv                      # untouched sliders: whole track, no fades
     assert settings.load()["last_save_folder"] == str(tmp_path / "out")
     assert "Saved" in app.status_var.get()
     app.update()
@@ -315,3 +319,188 @@ def test_cancel_after_an_earlier_save_says_cancelled(fake_tools, app, save_to):
     _pump(app, lambda: app.state == main.READY)
     assert app.status_var.get() == "Save cancelled. Nothing was written."
     assert "cancelled while saving" in settings.LOG_PATH.read_text()
+
+
+
+# --- M3: trim, fade, cursor, preview ------------------------------------------
+
+from karaokegrab.player import Player       # noqa: E402
+from karaokegrab.trim import TrimSpec        # noqa: E402
+from test_player import Clock, FakeProc      # noqa: E402
+
+
+@pytest.fixture
+def player(app):
+    """A Player with fake afplay processes and a hand-moved clock."""
+    procs, clock = [], Clock()
+
+    def popen(argv, **kw):
+        p = FakeProc()
+        p.argv = argv
+        procs.append(p)
+        return p
+
+    app.player = Player(popen=popen, clock=clock)
+    app.player.procs, app.player.clock = procs, clock
+    return app.player
+
+
+def _ready(app):
+    _fetch(app)
+    assert app.state == main.READY
+
+
+def _wait_playing(app):
+    _pump(app, lambda: app.player.playing)
+
+
+def test_sliders_start_at_the_whole_track_with_no_fades(fake_tools, app):
+    assert not app.trim_slider.enabled and not app.preview_btns["start"]._enabled
+    _ready(app)
+    assert app.spec == TrimSpec(0, 19, 0, 0)
+    assert app.trim_slider.enabled and app.fade_slider.enabled
+    assert (app.trim_slider.lo, app.trim_slider.hi) == (0, 19)
+    assert (app.fade_slider.a, app.fade_slider.b) == (0, 19)
+    assert app.start_var.get() == "0.0 s" and app.end_var.get() == "19.0 s"
+    assert app.length_var.get() == "Trimmed length 19.0 s"
+    assert app.fade_in_var.get() == app.fade_out_var.get() == "0.0 s"
+    assert not app.preview_btns["stop"]._enabled
+
+
+def test_fade_slider_rescales_with_the_trim_and_fades_stay_clamped(fake_tools, app):
+    _ready(app)
+    app._fade_changed(5, 14, True)              # fade in 5 s, fade out 5 s
+    assert (app.spec.fade_in, app.spec.fade_out) == (5, 5)
+    app._trim_changed(2, 8, True)               # only 6 s left
+    assert (app.spec.start, app.spec.end) == (2, 8)
+    assert (app.fade_slider.lo, app.fade_slider.hi) == (0, 6)
+    assert (app.spec.fade_in, app.spec.fade_out) == (5, 1)
+    assert (app.fade_slider.a, app.fade_slider.b) == (5, 5)
+    assert app.fade_in_var.get() == "5.0 s" and app.fade_out_var.get() == "1.0 s"
+
+
+def test_save_uses_the_trim_and_fades(fake_tools, app, save_to):
+    _ready(app)
+    _pick(app, "G")
+    app._trim_changed(2.5, 16, True)
+    app._fade_changed(1, 11.5, True)            # in 1 s; out 13.5 − 11.5 = 2 s
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    argv = fake_tools.save_argv
+    assert argv[argv.index("-ss") + 1] == "2.5" and argv[argv.index("-t") + 1] == "13.5"
+    assert argv[argv.index("-af") + 1] == "afade=t=in:st=0:d=1,afade=t=out:st=11.5:d=2"
+
+
+def test_cursor_is_shared_by_both_sliders(fake_tools, app):
+    _ready(app)
+    app._trim_changed(4, 16, True)
+    app._seek_fade(3)                           # 3 s into the trim
+    assert app.cursor == 7
+    assert app.trim_slider.cursor == 7 and app.fade_slider.cursor == 3
+    assert app.cursor_note.get() == "cursor 7.0 s (3.0 s into trim)"
+    app._seek_trim(1)                           # before the trim: clamped to its start
+    assert app.cursor == 4
+
+
+def test_trim_change_pulls_the_cursor_inside(fake_tools, app):
+    _ready(app)
+    app._seek_trim(18)
+    app._trim_changed(0, 10, True)
+    assert app.cursor == 10
+
+
+def test_from_start_plays_a_clip_from_the_trim_start(fake_tools, app, player):
+    _ready(app)
+    app._trim_changed(3, 15, True)
+    app._seek_trim(9)
+    app.preview_from_start()
+    _wait_playing(app)
+    argv = fake_tools.preview_argvs[-1]
+    assert argv[argv.index("-ss") + 1] == "3" and argv[argv.index("-t") + 1] == "12"
+    assert player.procs[-1].argv[1] == argv[-1].removesuffix(".part")
+    assert app.preview_btns["stop"]._enabled
+
+
+def test_cursor_follows_playback_and_stop_leaves_it_there(fake_tools, app, player):
+    _ready(app)
+    app._seek_trim(5)
+    app.preview_start()
+    _wait_playing(app)
+    player.clock.now += 2.5
+    _pump(app, lambda: app.cursor == 7.5)
+    app.preview_stop()
+    assert player.procs[-1].terminated
+    assert app.cursor == 7.5
+    assert not app.preview_btns["stop"]._enabled
+    clip = Path(player.procs[-1].argv[1])
+    assert not clip.exists()                    # the clip is deleted after use
+
+
+def test_from_end_plays_the_last_ten_seconds(fake_tools, app, player):
+    _ready(app)
+    app._trim_changed(0, 18, True)
+    app.preview_from_end()
+    _wait_playing(app)
+    argv = fake_tools.preview_argvs[-1]
+    assert argv[argv.index("-ss") + 1] == "8" and argv[argv.index("-t") + 1] == "10"
+    assert app.cursor == 8
+
+
+def test_cursor_rests_at_the_end_when_the_clip_finishes(fake_tools, app, player):
+    _ready(app)
+    app._trim_changed(2, 12, True)
+    app.preview_from_end()
+    _wait_playing(app)
+    player.procs[-1].returncode = 0            # afplay reached the end
+    _pump(app, lambda: not app.player.finished and app.cursor == 12)
+    assert not app.preview_btns["stop"]._enabled
+    app.preview_start()                         # Start at the end begins again from the trim start
+    _wait_playing(app)
+    assert app.player.offset == 2
+
+
+def test_changing_the_trim_or_fades_stops_playback(fake_tools, app, player):
+    _ready(app)
+    app.preview_from_start()
+    _wait_playing(app)
+    app._trim_changed(1, 19, False)
+    assert player.procs[-1].terminated and not app.player.playing
+    app.preview_from_start()
+    _wait_playing(app)
+    app._fade_changed(2, 18, False)
+    assert player.procs[-1].terminated
+
+
+def test_clicking_the_track_while_playing_continues_from_there(fake_tools, app, player):
+    _ready(app)
+    app.preview_from_start()
+    _wait_playing(app)
+    app._seek_trim(12)
+    _pump(app, lambda: len(player.procs) == 2 and app.player.playing)
+    assert player.procs[0].terminated
+    assert app.player.offset == 12
+
+
+def test_saving_stops_playback_and_locks_the_sliders(fake_tools, app, player, save_to):
+    _ready(app)
+    _pick(app, "A")
+    app.preview_from_start()
+    _wait_playing(app)
+    fake_tools.hold_save = True
+    app.save()
+    assert player.procs[-1].terminated
+    assert not app.trim_slider.enabled and not app.preview_btns["start"]._enabled
+    app.cancel()
+    _pump(app, lambda: app.state == main.READY)
+    assert app.trim_slider.enabled
+
+
+def test_new_url_resets_trim_fades_and_cursor(fake_tools, app):
+    _ready(app)
+    app._trim_changed(3, 9, True)
+    app._fade_changed(1, 5, True)
+    app._seek_trim(6)
+    fake_tools.video_json = {**fake_tools.video_json, "id": "other12345", "duration": 30}
+    _fetch(app, "https://youtu.be/other12345")
+    assert app.spec == TrimSpec(0, 30, 0, 0)
+    assert app.cursor == 0

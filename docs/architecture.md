@@ -58,6 +58,7 @@ karaokegrab/
   proc.py               run one external tool: stream stdout, keep stderr, cancel (kills its process group)
   settings.py           JSON settings (last save folder, fade defaults) + log file
   widgets.py            colour-filled Label-based button (aqua ignores tk.Button colours), from Music Printer
+  rangeslider.py        two-handle Canvas slider with a cursor marker (Trim and Fade); pixel ↔ seconds math is pure
 tests/                  pytest; subprocess mocked; no network
 assets/                 icon.svg (source) → icon.icns via make_icon.py
 docs/                   product_spec, architecture, dev_environment, roadmap
@@ -125,9 +126,12 @@ YouTube is looked up only once per URL.
   elapsed time); **Start** renders again from the cursor. **From start**
   sets the cursor to the trim start; **From end** plays the last 10 s up
   to the trim end.
-- A preview from the cursor still decodes from the trim start and drops
-  the audio before the cursor with an output-side `-ss`, so the fade-in
-  sounds exactly as it will be saved.
+- A preview seeks straight to the cursor and keeps the source timestamps
+  (`-copyts`), with the fades placed at their absolute times in the track.
+  The clip is sample-for-sample the matching part of the final render,
+  and it's ready in about 0.1–0.7 s (longer clips take longer to write).
+  **Start** with the cursor at the trim end starts over from the trim start.
+  Clicking a slider's track while a preview plays continues from there.
 - The playback cursor is one time value in `main.py` state, drawn on both
   sliders (trim slider: absolute time; fade slider: time relative to the
   trim start), advanced by a Tk `after()` timer while playing, and set by

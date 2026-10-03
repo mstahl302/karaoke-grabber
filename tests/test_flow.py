@@ -167,21 +167,28 @@ def test_edited_title_feeds_the_filename(fake_tools, app, save_to):
     assert save_to["initialfile"] == "Zoo Song - AUDIO - C.mp3"
 
 
+def _press(sheet, key):
+    """Type *key* into the sheet's text field. Key events go to the focus
+    window, and headless X11 (CI) has no window manager to hand it out."""
+    sheet.entry.focus_force()
+    sheet.update()
+    sheet.entry.event_generate(key)
+    sheet.update()
+
+
 def test_title_sheet_keys(fake_tools, app):
     _fetch(app)
     app.edit_title()
     app.update()                                       # the sheet is on screen before a key press
-    sheet = app.title_sheet
-    sheet.value.set("Changed")
-    sheet.event_generate("<Escape>")
-    app.update()
+    app.title_sheet.value.set("Changed")
+    _press(app.title_sheet, "<Escape>")
     assert app.title_sheet is None
     assert app.title_var.get() == "Me at the zoo"          # Esc cancels
     app.edit_title()
     app.update()
     app.title_sheet.value.set("Changed")
-    app.title_sheet.event_generate("<Return>")
-    app.update()
+    _press(app.title_sheet, "<Return>")
+    assert app.title_sheet is None
     assert app.title_var.get() == "Changed"                # Return saves
 
 

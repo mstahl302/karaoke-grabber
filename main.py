@@ -24,7 +24,7 @@ from tkinter import filedialog, ttk
 from karaokegrab import (cache, download, fetch, keys, naming, proc, render,
                          settings, timecode, tools)
 from karaokegrab.trim import TrimSpec
-from karaokegrab.widgets import MAGENTA, PURPLE, Button
+from karaokegrab.widgets import HAND, MAGENTA, PURPLE, Button
 
 APP_NAME = "Karaoke Grabber"
 KEY_PLACEHOLDER = "— choose —"
@@ -287,10 +287,10 @@ class App(tk.Tk):
                                      justify="left", wraplength=520)
         self.status_label.grid(row=0, column=0, sticky="w")
         self._status_fg = self.status_label.cget("fg")
-        self.details_link = tk.Label(srow, text="Details ▸", fg=PURPLE, cursor="pointinghand")
+        self.details_link = tk.Label(srow, text="Details ▸", fg=PURPLE, cursor=HAND)
         self.details_link.bind("<Button-1>", lambda _e: self.toggle_details())
         self.cancel_link = tk.Label(srow, text="Cancel", fg=PURPLE, font=self.f_head,
-                                    cursor="pointinghand")
+                                    cursor=HAND)
         self.cancel_link.bind("<Button-1>", lambda _e: self.cancel())
 
         self.details_box = tk.Text(root, height=9, wrap="word", font="TkFixedFont",

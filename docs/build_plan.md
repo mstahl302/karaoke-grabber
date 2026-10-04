@@ -169,33 +169,35 @@ played.
 
 ## 7. M4 — Polish
 
-- [ ] "Reveal in Finder" after saving (`open -R`) (F13)
-- [ ] Shortcuts: Return = Fetch, Space = Start/Stop, ⌘S = Save, ⌘Q quits
+- [x] "Reveal in Finder" after saving (`open -R`) (F13)
+- [x] Shortcuts: Return = Fetch, Space = play/pause, ⌘S = Save, ⌘Q quits
       cleanly and kills any running yt-dlp, ffmpeg or afplay (F13)
-- [ ] Prerequisite check on launch (F16): Homebrew, yt-dlp, ffmpeg and
+- [x] Prerequisite check on launch (F16): Homebrew, yt-dlp, ffmpeg and
       deno; a dialog with the one command to run and a Copy button; a
       missing Homebrew points to the README
-- [ ] Step-by-step progress (F10): one bar runs across the whole Fetch,
+- [x] Step-by-step progress (F10): one bar runs across the whole Fetch,
       with a short message at each stop, so a long download never looks stuck:
   - "Looking up the video…" at 3%
   - "Getting the thumbnail…" at 8%
   - "Downloading the audio… 45%" from 10% to 95%, with real progress
   - "Finishing…" at 98%, then "Ready." and the bar hides
-  - A preview shows "Preparing preview…" with ffmpeg's real progress, and
-    **Stop** cancels a preview that's still being prepared
-  - Saving keeps "Saving… 62%"; the **Cancel** link stays in view for the
-    whole Fetch and Save
-- [ ] Details pane and log file wired into every error path (F11)
-- [ ] Cache pruning on startup
+  - The background preview shows "Preparing preview…" with ffmpeg's real
+    progress
+  - Saving keeps "Saving… 62%"; a **Cancel** button beside the bar stays in
+    view for the whole Fetch and Save
+- [x] Details pane and log file wired into every error path (F11)
+- [x] Cache pruning on startup
 - [x] Remember the last save folder across launches (done in M2)
-- [ ] Light and dark mode check; window resizing behaves
-- [ ] Edge cases, each with a clear message:
+- [x] Light and dark mode check (the window keeps its light look in Dark
+      Mode); window resizing behaves (the title rewraps)
+- [x] Edge cases, each with a clear message:
   - Playlist-only links (`playlist?list=…`) rejected at once, before
     yt-dlp spends time listing the playlist. A video link inside a
     playlist still fetches just that video.
   - YouTube links only (youtube.com, youtu.be, m., music., /shorts/);
     other sites get "Only YouTube links for now" (Roadmap R10 lifts this)
-  - The first link is picked out of pasted text with extra words or spaces
+  - Only one well-formed `https://` link to a single YouTube video is
+    accepted; extra words, channel pages and the like are rejected
   - Videos under 1 s rejected; live, upcoming and just-ended streams
     rejected (done in M1)
   - No network at Fetch (done in M1), and a network drop during the
@@ -205,6 +207,17 @@ played.
   - Cached audio deleted while the app is open: download it again
   - Real-link check of `youtu.be/…`, `/shorts/…`, `music.youtube.com`,
     `m.youtube.com` and `&t=90s` links
+
+- [x] From the first hands-on test (2026-10-04):
+  - Preview prepared in the background after the download and after every
+    slider change (a running preparation is killed and restarted); play
+    buttons disabled until it's ready; the preview persists, so moving the
+    cursor and playing or pausing is instant (F5)
+  - One round play/pause button (▶ / ❚❚, no words) between From start and
+    From end, replacing Start and Stop (F5)
+  - Space works after clicking a slider (F13)
+  - Fetch errors in a band right under the link box (F1, F11)
+  - Cancel is a button beside the progress bar (F10)
 
 **Exit criteria:** a week of normal use with no crashes or confusing
 states; tests and CI green.

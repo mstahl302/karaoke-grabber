@@ -1,15 +1,17 @@
 """Preview playback through macOS ``afplay``.
 
-``afplay`` can't pause or seek, so a preview is a WAV clip that starts at
-the cursor; :class:`Player` plays one clip at a time and reports how far it
-has got, which the UI adds to the clip's start to move the cursor. Stop
-kills afplay; playing again renders a new clip from the cursor.
+``afplay`` can't pause or seek. The UI renders one WAV of the whole trimmed
+range in the background; to play from the cursor, :func:`slice_wav` cuts
+the tail from that point (a byte copy, a few milliseconds) and
+:class:`Player` plays it, reporting how far it has got so the UI can move
+the cursor. Pause kills afplay; playing again cuts a new tail.
 """
 
 from __future__ import annotations
 
 import subprocess
 import time
+import wave
 from pathlib import Path
 from typing import Callable
 
@@ -69,3 +71,21 @@ class Player:
     def reset(self) -> None:
         """Forget a finished clip."""
         self._proc = None
+
+
+def slice_wav(src: Path, dst: Path, seconds: float) -> Path:
+    """Write the part of WAV *src* from *seconds* to its end into *dst*."""
+    with wave.open(str(src), "rb") as r:
+        rate = r.getframerate()
+        start = min(r.getnframes(), max(0, int(round(seconds * rate))))
+        r.setpos(start)
+        with wave.open(str(dst), "wb") as w:
+            w.setnchannels(r.getnchannels())
+            w.setsampwidth(r.getsampwidth())
+            w.setframerate(rate)
+            while True:
+                chunk = r.readframes(1 << 18)
+                if not chunk:
+                    break
+                w.writeframes(chunk)
+    return dst

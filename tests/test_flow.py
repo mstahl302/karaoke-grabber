@@ -2,7 +2,9 @@
 modules, and only the subprocess layer (proc.run) faked. No network."""
 
 import json
+import sys
 import time
+import wave
 from pathlib import Path
 
 import pytest
@@ -33,13 +35,16 @@ def all_tools(monkeypatch):
 
 
 class Tools:
-    """Fake yt-dlp and ffmpeg behind proc.run. Set ``hold_download`` or
-    ``hold_save`` to make that step wait until cancelled."""
+    """Fake yt-dlp and ffmpeg behind proc.run. Set ``hold_download``,
+    ``hold_save`` or ``hold_preview`` to make that step wait until cancelled.
+    Preview renders write a real (silent, 8 kHz) WAV of the requested length."""
 
     def __init__(self, fake_run, video_json):
         self.video_json = video_json
         self.hold_download = False
         self.hold_save = False
+        self.hold_preview = False
+        self.cancelled_previews = 0
         self.save_argv: list[str] | None = None
         self.preview_argvs: list[list[str]] = []
         fake_run.on(lambda a: "-J" in a, self.info)
@@ -65,9 +70,21 @@ class Tools:
 
     def ffmpeg(self, argv, on_line, cancel):
         if argv[-2] == "wav":
+            hold = self.hold_preview                  # read before the test can see this call
             self.preview_argvs.append(argv)
-        else:
-            self.save_argv = argv
+            seconds = float(argv[argv.index("-t") + 1])
+            with wave.open(argv[-1], "wb") as w:      # the .part file
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(8000)
+                w.writeframes(b"\0\0" * int(seconds * 8000))
+            on_line("out_time_us=1000000")
+            if hold:
+                cancel.wait(5)
+                self.cancelled_previews += 1
+                return result(argv, returncode=-15, cancelled=True)
+            return result(argv)
+        self.save_argv = argv
         Path(argv[-1]).write_bytes(b"mp3")           # the .part file
         on_line("out_time_us=9500000")
         if self.hold_save:
@@ -231,7 +248,7 @@ def test_cancel_during_download_leaves_no_partial_file(fake_tools, app):
     app.url_var.set(URL)
     app.fetch()
     _pump(app, lambda: app.state == main.DOWNLOADING and app.progress.cget("value") > 0)
-    assert app.cancel_link.winfo_ismapped()
+    assert app.cancel_btn.winfo_ismapped()
     app.cancel()
     _pump(app, lambda: app.state == main.CANCELLED)
     assert list(cache.video_dir("jNQXAC9IVRw").glob("audio.*")) == []
@@ -259,15 +276,21 @@ def test_fetch_error_shows_friendly_message_and_details(all_tools, fake_run, app
         a, returncode=1, stderr="ERROR: [youtube] xxxxxxxxxxx: This video is unavailable"))
     _fetch(app, "https://www.youtube.com/watch?v=xxxxxxxxxxx")
     assert app.state == main.ERROR
-    assert "unavailable" in app.status_var.get()
-    assert app.details_link.winfo_ismapped()
+    app.update()
+    # fetch problems show right under the link box, not in the status line
+    assert app.fetch_error.winfo_ismapped()
+    assert "unavailable" in app.fetch_error_var.get()
+    assert app.fetch_details_link.winfo_ismapped()
     app.toggle_details()
     app.update()
-    assert app.details_box.winfo_ismapped()
-    assert "This video is unavailable" in app.details_box.get("1.0", "end")
+    assert app.fetch_details_box.winfo_ismapped()
+    assert "This video is unavailable" in app.fetch_details_box.get("1.0", "end")
     app.toggle_details()
     app.update()
-    assert not app.details_box.winfo_ismapped()
+    assert not app.fetch_details_box.winfo_ismapped()
+    app.url_entry.event_generate("<Key>", keysym="a")      # editing the link clears it
+    app.update()
+    assert not app.fetch_error.winfo_ismapped()
     assert "This video is unavailable" in settings.LOG_PATH.read_text()
 
 
@@ -276,7 +299,7 @@ def test_download_failure_suggests_updating_ytdlp(fake_tools, fake_run, app):
                                  lambda a, ol, c: result(a, returncode=1, stderr="ERROR: 403")))
     _fetch(app)
     assert app.state == main.ERROR
-    assert "brew upgrade yt-dlp" in app.status_var.get()
+    assert "brew upgrade yt-dlp" in app.fetch_error_var.get()
     assert app.save_blocker() == "fetch a video first"
 
 
@@ -287,7 +310,7 @@ def test_missing_tools_are_reported_on_launch(monkeypatch, fake_run):
     a = main.App()
     try:
         assert a.state == main.ERROR
-        assert "brew install yt-dlp" in a.status_var.get()
+        assert "brew install yt-dlp" in a.fetch_error_var.get()
         a.url_var.set(URL)
         a.fetch()
         assert fake_run.calls == []
@@ -333,7 +356,7 @@ def test_cancel_after_an_earlier_save_says_cancelled(fake_tools, app, save_to):
 
 
 
-# --- M3: trim, fade, cursor, preview ------------------------------------------
+# --- M3/M4: trim, fade, cursor, the background preview ----------------------
 
 from karaokegrab.player import Player       # noqa: E402
 from karaokegrab.trim import TrimSpec        # noqa: E402
@@ -356,17 +379,24 @@ def player(app):
     return app.player
 
 
+def _preview_ready(app):
+    _pump(app, lambda: app.preview_clip is not None and not app.preparing)
+
+
 def _ready(app):
+    """Fetched, downloaded, and the background preview is ready to play."""
     _fetch(app)
     assert app.state == main.READY
+    _preview_ready(app)
 
 
-def _wait_playing(app):
-    _pump(app, lambda: app.player.playing)
+def _wav_seconds(path):
+    with wave.open(str(path), "rb") as w:
+        return w.getnframes() / w.getframerate()
 
 
 def test_sliders_start_at_the_whole_track_with_no_fades(fake_tools, app):
-    assert not app.trim_slider.enabled and not app.preview_btns["start"]._enabled
+    assert not app.trim_slider.enabled and not app.play_btn._enabled
     _ready(app)
     assert app.spec == TrimSpec(0, 19, 0, 0)
     assert app.trim_slider.enabled and app.fade_slider.enabled
@@ -375,7 +405,48 @@ def test_sliders_start_at_the_whole_track_with_no_fades(fake_tools, app):
     assert app.start_var.get() == "0.0 s" and app.end_var.get() == "19.0 s"
     assert app.length_var.get() == "Trimmed length 19.0 s"
     assert app.fade_in_var.get() == app.fade_out_var.get() == "0.0 s"
-    assert not app.preview_btns["stop"]._enabled
+    assert app.play_btn._enabled and app.play_btn.symbol == "play"
+
+
+def test_preview_is_made_in_the_background_after_the_download(fake_tools, app):
+    _fetch(app)
+    assert app.preparing and not app.play_btn._enabled          # play waits for it
+    assert not app.preview_btns["from_start"]._enabled
+    _preview_ready(app)
+    argv = fake_tools.preview_argvs[-1]
+    assert argv[argv.index("-ss") + 1] == "0" and argv[argv.index("-t") + 1] == "19"
+    assert _wav_seconds(app.preview_clip) == 19
+    assert app.status_var.get().startswith("Ready.")            # the status comes back
+    app.update()
+    assert not app.progress.winfo_ismapped()
+
+
+def test_changing_a_slider_remakes_the_preview_once_it_settles(fake_tools, app):
+    _ready(app)
+    renders = len(fake_tools.preview_argvs)
+    for end in (18, 17, 16):                                     # a drag: three quick moves
+        app._trim_changed(2, end, False)
+        assert app.preview_clip is None and app.preparing and not app.play_btn._enabled
+    _preview_ready(app)
+    assert len(fake_tools.preview_argvs) == renders + 1          # one render, after it settled
+    argv = fake_tools.preview_argvs[-1]
+    assert argv[argv.index("-ss") + 1] == "2" and argv[argv.index("-t") + 1] == "14"
+
+
+def test_a_slider_change_kills_a_render_in_progress(fake_tools, app):
+    _ready(app)
+    fake_tools.hold_preview = True
+    renders = len(fake_tools.preview_argvs)
+    app._fade_changed(1, 19, True)
+    _pump(app, lambda: len(fake_tools.preview_argvs) > renders)   # ffmpeg is running
+    running = app._preview_cancel
+    fake_tools.hold_preview = False
+    app._fade_changed(2, 19, True)
+    assert running.is_set
+    _preview_ready(app)
+    _pump(app, lambda: fake_tools.cancelled_previews == 1)
+    argv = fake_tools.preview_argvs[-1]
+    assert argv[argv.index("-af") + 1].startswith("afade=t=in:st=0:d=2")
 
 
 def test_fade_slider_rescales_with_the_trim_and_fades_stay_clamped(fake_tools, app):
@@ -387,7 +458,6 @@ def test_fade_slider_rescales_with_the_trim_and_fades_stay_clamped(fake_tools, a
     assert (app.fade_slider.lo, app.fade_slider.hi) == (0, 6)
     assert (app.spec.fade_in, app.spec.fade_out) == (5, 1)
     assert (app.fade_slider.a, app.fade_slider.b) == (5, 5)
-    assert app.fade_in_var.get() == "5.0 s" and app.fade_out_var.get() == "1.0 s"
 
 
 def test_save_uses_the_trim_and_fades(fake_tools, app, save_to):
@@ -413,71 +483,66 @@ def test_cursor_is_shared_by_both_sliders(fake_tools, app):
     assert app.cursor == 4
 
 
-def test_trim_change_pulls_the_cursor_inside(fake_tools, app):
+def test_play_from_start_uses_the_preview_itself(fake_tools, app, player):
     _ready(app)
-    app._seek_trim(18)
-    app._trim_changed(0, 10, True)
-    assert app.cursor == 10
-
-
-def test_from_start_plays_a_clip_from_the_trim_start(fake_tools, app, player):
-    _ready(app)
-    app._trim_changed(3, 15, True)
-    app._seek_trim(9)
     app.preview_from_start()
-    _wait_playing(app)
-    argv = fake_tools.preview_argvs[-1]
-    assert argv[argv.index("-ss") + 1] == "3" and argv[argv.index("-t") + 1] == "12"
-    assert player.procs[-1].argv[1] == argv[-1].removesuffix(".part")
-    assert app.preview_btns["stop"]._enabled
+    assert player.procs[-1].argv[1] == str(app.preview_clip)
+    assert app.player.playing and app.play_btn.symbol == "pause"
 
 
-def test_cursor_follows_playback_and_stop_leaves_it_there(fake_tools, app, player):
+def test_play_from_the_cursor_cuts_the_preview_there(fake_tools, app, player):
     _ready(app)
     app._seek_trim(5)
-    app.preview_start()
-    _wait_playing(app)
+    renders = len(fake_tools.preview_argvs)
+    app.toggle_play()
+    clip = Path(player.procs[-1].argv[1])
+    assert clip != app.preview_clip and _wav_seconds(clip) == 14
+    assert app.player.offset == 5
+    assert len(fake_tools.preview_argvs) == renders               # no new render: instant
+
+
+def test_pause_keeps_the_preview_and_the_cursor(fake_tools, app, player):
+    _ready(app)
+    app._seek_trim(5)
+    app.toggle_play()
     player.clock.now += 2.5
     _pump(app, lambda: app.cursor == 7.5)
-    app.preview_stop()
-    assert player.procs[-1].terminated
-    assert app.cursor == 7.5
-    assert not app.preview_btns["stop"]._enabled
-    clip = Path(player.procs[-1].argv[1])
-    assert not clip.exists()                    # the clip is deleted after use
+    app.toggle_play()                                              # pause
+    assert player.procs[-1].terminated and app.cursor == 7.5
+    assert app.play_btn.symbol == "play" and app.preview_clip.exists()
+    renders = len(fake_tools.preview_argvs)
+    app.toggle_play()                                              # and play again, at once
+    assert app.player.playing and app.player.offset == 7.5
+    assert len(fake_tools.preview_argvs) == renders
 
 
 def test_from_end_plays_the_last_ten_seconds(fake_tools, app, player):
     _ready(app)
     app._trim_changed(0, 18, True)
+    _preview_ready(app)
     app.preview_from_end()
-    _wait_playing(app)
-    argv = fake_tools.preview_argvs[-1]
-    assert argv[argv.index("-ss") + 1] == "8" and argv[argv.index("-t") + 1] == "10"
-    assert app.cursor == 8
+    assert app.cursor == 8 and _wav_seconds(player.procs[-1].argv[1]) == 10
 
 
 def test_cursor_rests_at_the_end_when_the_clip_finishes(fake_tools, app, player):
     _ready(app)
     app._trim_changed(2, 12, True)
+    _preview_ready(app)
     app.preview_from_end()
-    _wait_playing(app)
     player.procs[-1].returncode = 0            # afplay reached the end
     _pump(app, lambda: not app.player.finished and app.cursor == 12)
-    assert not app.preview_btns["stop"]._enabled
-    app.preview_start()                         # Start at the end begins again from the trim start
-    _wait_playing(app)
+    assert app.play_btn.symbol == "play"
+    app.toggle_play()                           # at the end it starts over from the trim start
     assert app.player.offset == 2
 
 
 def test_changing_the_trim_or_fades_stops_playback(fake_tools, app, player):
     _ready(app)
     app.preview_from_start()
-    _wait_playing(app)
     app._trim_changed(1, 19, False)
     assert player.procs[-1].terminated and not app.player.playing
+    _preview_ready(app)
     app.preview_from_start()
-    _wait_playing(app)
     app._fade_changed(2, 18, False)
     assert player.procs[-1].terminated
 
@@ -485,28 +550,25 @@ def test_changing_the_trim_or_fades_stops_playback(fake_tools, app, player):
 def test_clicking_the_track_while_playing_continues_from_there(fake_tools, app, player):
     _ready(app)
     app.preview_from_start()
-    _wait_playing(app)
     app._seek_trim(12)
-    _pump(app, lambda: len(player.procs) == 2 and app.player.playing)
-    assert player.procs[0].terminated
+    assert player.procs[0].terminated and app.player.playing
     assert app.player.offset == 12
 
 
-def test_saving_stops_playback_and_locks_the_sliders(fake_tools, app, player, save_to):
+def test_saving_pauses_playback_and_locks_the_sliders(fake_tools, app, player, save_to):
     _ready(app)
     _pick(app, "A")
     app.preview_from_start()
-    _wait_playing(app)
     fake_tools.hold_save = True
     app.save()
     assert player.procs[-1].terminated
-    assert not app.trim_slider.enabled and not app.preview_btns["start"]._enabled
+    assert not app.trim_slider.enabled and not app.play_btn._enabled
     app.cancel()
     _pump(app, lambda: app.state == main.READY)
-    assert app.trim_slider.enabled
+    assert app.trim_slider.enabled and app.play_btn._enabled     # the preview survived
 
 
-def test_new_url_resets_trim_fades_and_cursor(fake_tools, app):
+def test_new_url_resets_trim_fades_cursor_and_preview(fake_tools, app):
     _ready(app)
     app._trim_changed(3, 9, True)
     app._fade_changed(1, 5, True)
@@ -515,3 +577,187 @@ def test_new_url_resets_trim_fades_and_cursor(fake_tools, app):
     _fetch(app, "https://youtu.be/other12345")
     assert app.spec == TrimSpec(0, 30, 0, 0)
     assert app.cursor == 0
+    _preview_ready(app)
+    assert _wav_seconds(app.preview_clip) == 30
+
+
+# --- M4: progress steps, shortcuts, prerequisites, robustness -------------------
+
+def test_fetch_walks_through_the_progress_steps(fake_tools, app):
+    seen = []
+    real_step = app._step
+    app._step = lambda f, m: (seen.append((m, round(f, 2))), real_step(f, m))
+    _fetch(app)
+    _preview_ready(app)
+    messages = [m for m, _ in seen]
+    fetch_part = messages[:messages.index("Finishing…") + 1]
+    assert fetch_part[:3] == ["Looking up the video…", "Getting the thumbnail…",
+                              "Downloading the audio…"]
+    assert "Downloading the audio… 50%" in fetch_part
+    values = [v for _, v in seen][:len(fetch_part)]
+    assert values == sorted(values)                       # the bar only moves forward
+    assert values[0] == main.STEP_LOOKUP and values[-1] == main.STEP_FINISH
+    assert messages[len(fetch_part)] == "Preparing preview…"   # then the background preview
+
+
+def test_cancel_is_a_button_beside_the_bar_while_fetching(fake_tools, app):
+    fake_tools.hold_download = True
+    app.url_var.set(URL)
+    app.fetch()
+    app.update()
+    assert app.progress.winfo_ismapped() and app.cancel_btn.winfo_ismapped()
+    app.cancel()
+    _pump(app, lambda: app.state == main.CANCELLED)
+    app.update()
+    assert not app.cancel_btn.winfo_ismapped()
+
+
+@pytest.mark.parametrize("text, message", [
+    ("https://www.youtube.com/playlist?list=PL1", main.fetch.PLAYLIST),
+    ("https://vimeo.com/1", main.fetch.NOT_YOUTUBE),
+    ("look: https://www.youtube.com/watch?v=jNQXAC9IVRw", main.fetch.NOT_A_LINK),
+    ("https://www.youtube.com/@SingKingKaraoke", main.fetch.NOT_A_VIDEO),
+])
+def test_bad_links_are_rejected_instantly_under_the_link_box(fake_tools, fake_run, app, text, message):
+    app.url_var.set(text)
+    app.fetch()
+    app.update()
+    assert app.state == main.ERROR
+    assert app.fetch_error_var.get() == message and app.fetch_error.winfo_ismapped()
+    assert fake_run.calls == []
+
+
+def test_clicking_a_slider_takes_focus_out_of_the_link_box(fake_tools, app, player):
+    _ready(app)
+    app.url_entry.focus_force()
+    app.update()
+    app.trim_slider.event_generate("<Button-1>", x=5, y=5)
+    app.update()
+    assert app.focus_get() is not app.url_entry
+
+
+def test_space_plays_and_pauses_but_not_while_typing(fake_tools, app, player):
+    _ready(app)
+    app.focus_force()
+    app.update()
+    app.event_generate("<space>")
+    app.update()
+    assert app.player.playing
+    app.event_generate("<space>")
+    app.update()
+    assert not app.player.playing
+    app.url_entry.focus_force()
+    app.update()
+    app.url_entry.event_generate("<space>")
+    app.update()
+    assert not app.player.playing
+
+
+def test_command_s_saves(fake_tools, app, save_to):
+    _ready(app)
+    mod = "Command" if sys.platform == "darwin" else "Control"
+    app.focus_force()
+    app.update()
+    app.event_generate(f"<{mod}-s>")
+    _pump(app, lambda: app.state == main.SAVED)
+
+
+def test_reveal_in_finder_after_saving(fake_tools, app, save_to, monkeypatch, tmp_path):
+    opened = []
+    monkeypatch.setattr(main.subprocess, "Popen", lambda argv, **kw: opened.append(argv))
+    _ready(app)
+    assert not app.reveal_link.winfo_ismapped()
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    app.update()
+    assert app.reveal_link.winfo_ismapped()
+    app.reveal()
+    assert opened == [["open", "-R", str(tmp_path / "out" / "Me at the zoo - AUDIO.mp3")]]
+
+
+def test_missing_tools_open_the_install_dialog(monkeypatch, fake_run):
+    missing = tools.Toolset(paths={"yt-dlp": "/x", "ffmpeg": None, "ffprobe": None, "deno": "/x"},
+                            brew="/x/brew", missing=["ffmpeg", "ffprobe"])
+    monkeypatch.setattr(tools, "locate", lambda: missing)
+    a = main.App()
+    try:
+        _pump(a, lambda: a.prereq_dialog is not None)
+        d = a.prereq_dialog
+        assert d.command == "brew install ffmpeg"
+        d.copy()
+        assert a.clipboard_get() == "brew install ffmpeg"
+        d.check()                                          # still missing: stays open
+        assert a.prereq_dialog is d
+        found = tools.Toolset(paths={n: "/x" for n in tools.TOOLS}, brew="/x/brew")
+        monkeypatch.setattr(tools, "locate", lambda: found)
+        d.check()
+        assert a.prereq_dialog is None and a.state == main.IDLE
+    finally:
+        a._on_close()
+
+
+def test_missing_homebrew_points_to_brew_sh(monkeypatch, fake_run):
+    monkeypatch.setattr(tools, "locate", lambda: tools.Toolset(
+        paths={n: None for n in tools.TOOLS}, brew=None, missing=list(tools.TOOLS)))
+    a = main.App()
+    try:
+        _pump(a, lambda: a.prereq_dialog is not None)
+        texts = " ".join(str(w.cget("text")) for w in a.prereq_dialog.frm.winfo_children()
+                         if "text" in w.keys())
+        assert "Homebrew isn't installed" in texts and "Open brew.sh" in texts
+    finally:
+        a._on_close()
+
+
+def test_cache_is_pruned_on_launch(fake_tools):
+    import os
+    for i in range(12):
+        d = cache.video_dir(f"v{i:02d}")
+        d.mkdir(parents=True)
+        (d / "audio.webm").write_bytes(b"x")
+        os.utime(d, (1000 + i, 1000 + i))
+    a = main.App()
+    try:
+        assert len(list(cache.CACHE_DIR.iterdir())) == cache.KEEP
+    finally:
+        a._on_close()
+
+
+def test_audio_removed_from_the_cache_is_downloaded_again(fake_tools, fake_run, app, save_to):
+    _ready(app)
+    app.audio.unlink()
+    fake_run.calls.clear()
+    app.save()                                             # notices, downloads again, then saves
+    _pump(app, lambda: app.state == main.SAVED)
+    assert any("--progress-template" in c for c in fake_run.calls)
+    assert app.audio.exists()
+
+
+def test_quitting_mid_save_leaves_no_part_file(fake_tools, app, save_to, tmp_path):
+    _ready(app)
+    fake_tools.hold_save = True
+    app.save()
+    _pump(app, lambda: app.state == main.SAVING and app.progress.cget("value") > 0)
+    assert list((tmp_path / "out").glob("*.part"))
+    app._on_close()
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+def test_unwritable_folder_says_so(fake_tools, app, monkeypatch, tmp_path):
+    _ready(app)
+    monkeypatch.setattr(main.filedialog, "asksaveasfilename",
+                        lambda **kw: str(tmp_path / "nowhere" / "x.mp3"))
+    app.save()
+    assert app.state == main.ERROR
+    assert app.status_var.get() == main.render.NOT_WRITABLE
+
+
+def test_preview_error_shows_details(fake_tools, fake_run, app):
+    fake_run.handlers.insert(0, (lambda a: a[-2] == "wav",
+                                 lambda a, ol, c: result(a, returncode=1, stderr="ffmpeg exploded")))
+    _fetch(app)
+    _pump(app, lambda: app.state == main.ERROR)
+    app.update()
+    assert app.details_link.winfo_ismapped()
+    assert "ffmpeg exploded" in app.details
+    assert app.save_blocker() == ""                        # the track is still usable

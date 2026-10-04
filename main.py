@@ -16,8 +16,11 @@ from __future__ import annotations
 import math
 import queue
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
+import webbrowser
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
@@ -25,16 +28,23 @@ from tkinter import filedialog, ttk
 
 from karaokegrab import (cache, download, fetch, keys, naming, proc, render,
                          settings, timecode, tools, trim)
-from karaokegrab.player import Player
+from karaokegrab.player import Player, slice_wav
 from karaokegrab.rangeslider import RangeSlider
 from karaokegrab.trim import TrimSpec
-from karaokegrab.widgets import HAND, MAGENTA, PURPLE, Button
+from karaokegrab.widgets import HAND, MAGENTA, PURPLE, Button, RoundButton
 
 APP_NAME = "Karaoke Grabber"
 KEY_NONE = "— none —"          # optional: no key leaves it out of the file name
 THUMB_W, THUMB_H = 160, 90
 PUMP_MS = 50
+
+# Progress-bar stops during Fetch (docs/build_plan.md §7), so a long download never looks stuck.
+STEP_LOOKUP = 0.03
+STEP_THUMB = 0.08
+STEP_DOWNLOAD = (0.10, 0.95)     # the download's own progress is spread over this range
+STEP_FINISH = 0.98
 TICK_MS = 50          # playback cursor refresh
+PREVIEW_DEBOUNCE_MS = 250   # wait for a dragged slider to settle before rendering
 
 # --- states (docs/architecture.md §4) ---
 IDLE = "idle"
@@ -46,6 +56,7 @@ SAVED = "saved"
 ERROR = "error"
 CANCELLED = "cancelled"
 BUSY = (FETCHING, DOWNLOADING, SAVING)
+TEXT_CLASSES = ("TEntry", "Entry", "TCombobox", "Text")
 
 CARD_BG = "#f6f2f9"
 CARD_EDGE = "#e2d8ea"
@@ -61,6 +72,7 @@ class TitleSheet(tk.Toplevel):
 
     def __init__(self, app: App) -> None:
         super().__init__(app)
+        light_appearance(self)
         self.app = app
         self.title("Song title")
         self.transient(app)
@@ -110,15 +122,105 @@ class TitleSheet(tk.Toplevel):
         self.destroy()
 
 
+def short_folder(folder: Path) -> str:
+    """'~/Music/Karaoke' rather than '/Users/me/Music/Karaoke'."""
+    try:
+        return "~/" + str(folder.relative_to(Path.home())) if folder != Path.home() else "~"
+    except ValueError:
+        return str(folder)
+
+
+def light_appearance(win: tk.Misc) -> None:
+    """Keep the light look in Dark Mode: the window uses its own light
+    colours (card, sliders, buttons), which aqua's dark text would make
+    unreadable."""
+    try:
+        win.update_idletasks()      # Tk can't set the appearance of a window it hasn't made yet
+        win.tk.call("::tk::unsupported::MacWindowStyle", "appearance", win._w, "aqua")
+    except tk.TclError:
+        pass
+
+
+class PrereqDialog(tk.Toplevel):
+    """F16: which tools are missing and the one command that installs them."""
+
+    def __init__(self, app: App) -> None:
+        super().__init__(app)
+        light_appearance(self)
+        self.app = app
+        self.title("Karaoke Grabber needs a few free tools")
+        self.transient(app)
+        self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.frm = ttk.Frame(self, padding=18)
+        self.frm.grid(sticky="nsew")
+        self._fill()
+        self.update_idletasks()
+        x = app.winfo_rootx() + (app.winfo_width() - self.winfo_reqwidth()) // 2
+        self.geometry(f"+{max(0, x)}+{app.winfo_rooty() + 60}")
+
+    def _fill(self) -> None:
+        for w in self.frm.winfo_children():
+            w.destroy()
+        found = self.app.tools
+        self.command = found.install_command()
+        names = ", ".join(found.missing)
+        ttk.Label(self.frm, text=f"Missing: {names}", font=self.app.f_head).grid(
+            row=0, column=0, columnspan=4, sticky="w")
+        if found.brew is None:
+            ttk.Label(self.frm, wraplength=420, justify="left", text=(
+                "Homebrew isn't installed. It's the free tool that installs the rest. "
+                "Install it from brew.sh (the README's Requirements section shows how), "
+                "then click Check again.")).grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 12))
+            ttk.Button(self.frm, text="Open brew.sh",
+                       command=lambda: webbrowser.open("https://brew.sh")).grid(row=3, column=0, sticky="w")
+        else:
+            ttk.Label(self.frm, wraplength=420, justify="left", text=(
+                "Run this one command in Terminal, then click Check again:")).grid(
+                row=1, column=0, columnspan=4, sticky="w", pady=(8, 6))
+            box = ttk.Entry(self.frm, width=44, font="TkFixedFont")
+            box.insert(0, self.command)
+            box.configure(state="readonly")
+            box.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+            ttk.Button(self.frm, text="Copy", command=self.copy).grid(row=2, column=3, padx=(8, 0), pady=(0, 12))
+        ttk.Button(self.frm, text="Close", command=self.close).grid(row=3, column=2, sticky="e")
+        ttk.Button(self.frm, text="Check again", command=self.check, default="active").grid(
+            row=3, column=3, sticky="e", padx=(8, 0))
+
+    def copy(self) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(self.command)
+        self.app.status_var.set("Copied. Paste it into Terminal and press Return.")
+
+    def check(self) -> None:
+        if self.app.recheck_tools():
+            self.close()
+        else:
+            self._fill()
+
+    def close(self) -> None:
+        self.app.prereq_dialog = None
+        self.destroy()
+
+
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+        light_appearance(self)
         self._closing = False
         self._afters: set[str] = set()
         self._q: queue.Queue = queue.Queue()
         self._token = 0                       # bumps on each Fetch; stale messages are dropped
         self._cancel: proc.Cancel | None = None
+        self._worker: threading.Thread | None = None
+        self._saving_part: Path | None = None      # deleted on quit if a save is cut short
         self.title_sheet: TitleSheet | None = None
+        self.prereq_dialog: PrereqDialog | None = None
+        self.source_url = ""
+        self.saved_path: Path | None = None
+        self._pending = None                        # action to rerun after a re-download
+        self._redownloading = False
+        self._status_before_preview = ""
 
         self.cfg = settings.load()
         self.tools = tools.locate()
@@ -134,8 +236,11 @@ class App(tk.Tk):
         self.player = Player()
         self._tmp = Path(tempfile.mkdtemp(prefix="karaoke-grabber-"))
         self._preview_token = 0
-        self.preparing = False          # a preview clip is being rendered
-        self._clip: Path | None = None
+        self.preview_clip: Path | None = None       # WAV of the whole trimmed range, with fades
+        self.preparing = False                      # the preview is being (re)made
+        self._preview_cancel: proc.Cancel | None = None
+        self._prep_after: str | None = None
+        self._prep_status_saved = False
         self._ticking = False
 
         self.url_var = tk.StringVar()
@@ -143,6 +248,7 @@ class App(tk.Tk):
         self.meta_var = tk.StringVar()
         self.key_var = tk.StringVar(value=KEY_NONE)
         self.status_var = tk.StringVar()
+        self.fetch_error_var = tk.StringVar()
         self.trim_note = tk.StringVar()
         self.fade_note = tk.StringVar()
         self.cursor_note = tk.StringVar()
@@ -164,13 +270,59 @@ class App(tk.Tk):
         except tk.TclError:
             pass
 
+        self._bind_shortcuts()
+        try:
+            cache.prune()
+        except OSError:
+            pass
+
         self._set_state(IDLE)
         if not self.tools.ok:
-            self._show_error(self.tools.problem())
+            self._show_error(self.tools.problem(), where="fetch")
+            self._after(300, self.show_prereq_dialog)
         else:
             self.status_var.set("Paste a YouTube link and click Fetch.")
         self.url_entry.focus_set()
         self._after(PUMP_MS, self._pump)
+
+    def _bind_shortcuts(self) -> None:
+        """F13: Space starts/stops the preview, ⌘S saves (Return = Fetch is on
+        the URL box). ⌘Q is tk::mac::Quit."""
+        self.bind("<space>", self._space_key)
+        mod = "Command" if sys.platform == "darwin" else "Control"
+        self.bind(f"<{mod}-s>", lambda _e: (self.save(), "break")[1])
+        # A click outside a text field takes keyboard focus out of it, so Space
+        # plays and pauses after clicking a slider (Canvas widgets don't take focus).
+        self.bind_all("<Button-1>", self._click_focus, add="+")
+
+    def _click_focus(self, e) -> None:
+        w = e.widget
+        if not hasattr(w, "winfo_class") or w.winfo_class() in TEXT_CLASSES:
+            return
+        try:
+            w.winfo_toplevel().focus_set()
+        except tk.TclError:
+            pass
+
+    def _space_key(self, e) -> str | None:
+        cls = e.widget.winfo_class() if hasattr(e.widget, "winfo_class") else ""
+        if cls in TEXT_CLASSES:
+            return None                                # typing a space
+        self.toggle_play()
+        return "break"
+
+    def show_prereq_dialog(self) -> None:
+        if self.prereq_dialog is None and not self.tools.ok and not self._closing:
+            self.prereq_dialog = PrereqDialog(self)
+
+    def recheck_tools(self) -> bool:
+        self.tools = tools.locate()
+        if self.tools.ok:
+            self.status_var.set("All set. Paste a YouTube link and click Fetch.")
+            self._set_state(IDLE if self.info is None else self.state)
+            return True
+        self.status_var.set(self.tools.problem())
+        return False
 
     # ------------------------------------------------------------ plumbing
     def _after(self, ms: int, fn) -> str:
@@ -206,8 +358,9 @@ class App(tk.Tk):
 
     def _start_worker(self, target, *args) -> None:
         self._cancel = proc.Cancel()
-        threading.Thread(target=target, args=(self._token, self._cancel, *args),
-                         daemon=True).start()
+        self._worker = threading.Thread(target=target, args=(self._token, self._cancel, *args),
+                                        daemon=True)
+        self._worker.start()
 
     # ------------------------------------------------------------ layout
     def _fonts(self) -> None:
@@ -217,6 +370,7 @@ class App(tk.Tk):
         self.f_head = tkfont.Font(family=fam, size=size - 1, weight="bold")
         self.f_small = tkfont.Font(family=fam, size=size - 1)
         self.f_save = tkfont.Font(family=fam, size=size + 3, weight="bold")
+        self.f_err = tkfont.Font(family=fam, size=size + 1, weight="bold")
 
     def _section(self, parent, row: int, text: str, note: tk.StringVar | None = None) -> ttk.Frame:
         head = ttk.Frame(parent)
@@ -260,11 +414,25 @@ class App(tk.Tk):
         self.url_entry.bind("<KP_Enter>", lambda _e: self.fetch())
         self.fetch_btn = Button(top, "Fetch", PURPLE, self.fetch)
         self.fetch_btn.grid(row=0, column=1)
+        self.url_entry.bind("<Key>", lambda _e: self._clear_fetch_error(), add="+")
+        # Fetch problems show right under the link, where you're looking (F1, F11)
+        self.fetch_error = tk.Frame(top, bg="#fbeef4", highlightthickness=1,
+                                    highlightbackground="#efc3d7")
+        self.fetch_error.columnconfigure(0, weight=1)
+        self.fetch_error_label = tk.Label(self.fetch_error, textvariable=self.fetch_error_var,
+                                          fg=WARN, bg="#fbeef4", font=self.f_err, anchor="w",
+                                          justify="left", wraplength=560)
+        self.fetch_error_label.grid(row=0, column=0, sticky="w", padx=10, pady=(8, 8))
+        self.fetch_details_link = tk.Label(self.fetch_error, text="Details ▸", fg=PURPLE,
+                                           bg="#fbeef4", cursor=HAND)
+        self.fetch_details_link.bind("<Button-1>", lambda _e: self.toggle_details())
 
         # Info card: thumbnail, song title + pencil (F15), channel · duration, Key (F7)
         card = tk.Frame(root, bg=CARD_BG, highlightthickness=1, highlightbackground=CARD_EDGE)
         card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
         card.columnconfigure(1, weight=1)
+        card.bind("<Configure>", lambda e: self.title_label.configure(
+            wraplength=max(240, e.width - THUMB_W - 110)))
         self.thumb = tk.Label(card, bg="#4b3a6b", fg="white", text="♪", font=self.f_title,
                               width=THUMB_W, height=THUMB_H, compound="center",
                               image=self._blank_image())
@@ -318,16 +486,16 @@ class App(tk.Tk):
         self._section(root, 6, "Preview", self.cursor_note)
         prow = ttk.Frame(root)
         prow.grid(row=7, column=0, sticky="ew")
-        self.preview_btns = {}
-        for i, (key, label, colour, cmd) in enumerate((
-                ("from_start", "⏮  From start", DARK, self.preview_from_start),
-                ("start", "▶  Start", PURPLE, self.preview_start),
-                ("stop", "■  Stop", DARK, self.preview_stop),
-                ("from_end", "⏭  From end", DARK, self.preview_from_end))):
-            prow.columnconfigure(i, weight=1, uniform="p")
-            b = Button(prow, label, colour, cmd)
-            b.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else 8, 0))
-            self.preview_btns[key] = b
+        prow.columnconfigure(0, weight=1, uniform="p")
+        prow.columnconfigure(2, weight=1, uniform="p")
+        self.preview_btns = {
+            "from_start": Button(prow, "⏮  From start", DARK, self.preview_from_start),
+            "from_end": Button(prow, "From end  ⏭", DARK, self.preview_from_end),
+        }
+        self.preview_btns["from_start"].grid(row=0, column=0, sticky="ew")
+        self.play_btn = RoundButton(prow, PURPLE, self.toggle_play, size=58)
+        self.play_btn.grid(row=0, column=1, padx=18)
+        self.preview_btns["from_end"].grid(row=0, column=2, sticky="ew")
 
         # Save (F8–F10) + progress, status, Cancel, error Details (F11)
         ttk.Separator(root).grid(row=8, column=0, sticky="ew", pady=(18, 0))
@@ -352,12 +520,16 @@ class App(tk.Tk):
         self._status_fg = self.status_label.cget("fg")
         self.details_link = tk.Label(srow, text="Details ▸", fg=PURPLE, cursor=HAND)
         self.details_link.bind("<Button-1>", lambda _e: self.toggle_details())
-        self.cancel_link = tk.Label(srow, text="Cancel", fg=PURPLE, font=self.f_head,
+        self.cancel_btn = Button(srow, "Cancel", DARK, self.cancel)
+        self.reveal_link = tk.Label(srow, text="Reveal in Finder", fg=PURPLE, font=self.f_head,
                                     cursor=HAND)
-        self.cancel_link.bind("<Button-1>", lambda _e: self.cancel())
+        self.reveal_link.bind("<Button-1>", lambda _e: self.reveal())
 
         self.details_box = tk.Text(root, height=9, wrap="word", font="TkFixedFont",
                                    relief="flat", bg="#f4f4f6", padx=8, pady=6)
+        self.fetch_details_box = tk.Text(self.fetch_error, height=7, wrap="word",
+                                         font="TkFixedFont", relief="flat", bg="#f7f4f7",
+                                         padx=8, pady=6)
         self.details_shown = False
 
     def _blank_image(self) -> tk.PhotoImage:
@@ -374,20 +546,33 @@ class App(tk.Tk):
         has_info = self.info is not None and state not in (IDLE, FETCHING, CANCELLED)
         self.key_box.configure(state="readonly" if has_info and state != SAVING else "disabled")
         self.pencil.set_enabled(has_info and state != SAVING)
-        if state in (DOWNLOADING, SAVING):
-            self.progress.pack(fill="x", expand=True)
-        else:
-            self.progress.pack_forget()
         if busy:
-            self.cancel_link.grid(row=0, column=2, sticky="e")
+            self.cancel_btn.grid(row=0, column=2, sticky="e", padx=(12, 0))
         else:
-            self.cancel_link.grid_remove()
+            self.cancel_btn.grid_remove()
+        if state == SAVED and self.saved_path is not None:
+            self.reveal_link.grid(row=0, column=2, sticky="e")
+        else:
+            self.reveal_link.grid_remove()
         if state != ERROR:
             self._hide_details()
         if state in BUSY:
-            self._stop_preview()
+            self.pause()
+        self._update_bar()
         self._refresh_save()
         self._refresh_editing()
+
+    def _update_bar(self) -> None:
+        """The bar shows while fetching, downloading, saving or preparing a preview."""
+        if self.state in BUSY or self.preparing:
+            if not self.progress.winfo_ismapped():
+                self.progress.pack(fill="x", expand=True)
+        else:
+            self.progress.pack_forget()
+
+    def _step(self, fraction: float, message: str) -> None:
+        self.progress.configure(value=fraction)
+        self.status_var.set(message)
 
     def _key(self) -> str | None:
         return keys.lookup(self.key_var.get())
@@ -423,7 +608,7 @@ class App(tk.Tk):
         self._thumb_img = None
         self.thumb.configure(image=self._blank, text="♪")
         self.progress.configure(value=0)
-        self._stop_preview()
+        self._drop_preview()
         self.spec = None
         self.cursor = 0.0
         self._sync_sliders()
@@ -432,18 +617,26 @@ class App(tk.Tk):
     def fetch(self) -> None:
         if self.state in BUSY:
             return
-        url = self.url_var.get().strip()
-        if not url:
+        text = self.url_var.get()
+        if not text.strip():
             self.status_var.set("Paste a YouTube link first.")
+            return
+        self._clear_fetch_error()
+        try:
+            url = fetch.check_url(text)     # instant: playlists, other sites, not a link
+        except fetch.FetchError as e:
+            self._show_error(e.message, where="fetch")
             return
         self.tools = tools.locate()
         if not self.tools.ok:
-            self._show_error(self.tools.problem())
+            self._show_error(self.tools.problem(), where="fetch")
+            self.show_prereq_dialog()
             return
         self._token += 1
         self._reset_for_new_url()
-        self.status_var.set("Looking up the video…")
+        self.source_url = url
         self._set_state(FETCHING)
+        self._step(STEP_LOOKUP, "Looking up the video…")
         self._start_worker(self._fetch_worker, url, self.tools)
 
     def edit_title(self) -> None:
@@ -455,6 +648,8 @@ class App(tk.Tk):
         if self.save_blocker():
             return
         assert self.info is not None and self.audio is not None
+        if not self._ensure_audio(self.save):
+            return
         key = self._key()
         folder = self.cfg.get("last_save_folder") or str(Path.home() / "Music")
         path = self._ask_save_path(folder if Path(folder).is_dir() else str(Path.home()),
@@ -467,10 +662,14 @@ class App(tk.Tk):
         out = Path(path)
         if out.suffix.lower() != ".mp3":
             out = out.with_name(out.name + ".mp3")
+        problem = render.check_writable(out.parent)
+        if problem:
+            self._show_error(problem)
+            return
         spec = self.spec or TrimSpec().clamped(self.info.duration)
-        self.progress.configure(value=0)
-        self.status_var.set("Saving…")
+        self._saving_part = render.part_path(out)
         self._set_state(SAVING)
+        self._step(0.0, "Saving…")
         self._start_worker(self._save_worker, self.tools["ffmpeg"], self.audio, spec, out)
 
     def _ask_save_path(self, folder: str, name: str) -> str:
@@ -494,18 +693,46 @@ class App(tk.Tk):
             self._cancel.set()
             self.status_var.set("Cancelling…")
 
+    def reveal(self) -> None:
+        """F13: show the saved file in Finder."""
+        if self.saved_path is not None and self.saved_path.exists():
+            subprocess.Popen(["open", "-R", str(self.saved_path)])
+
+    def _ensure_audio(self, then) -> bool:
+        """True if the downloaded audio is still on disk. If macOS (or
+        someone) removed it from the cache, download it again and run
+        *then* when that's done."""
+        if self.audio is not None and self.audio.exists():
+            return True
+        if self.info is None or self.state in BUSY:
+            return False
+        self._pending = then
+        self._redownloading = True
+        self.audio = None
+        self._set_state(DOWNLOADING)
+        self._step(STEP_DOWNLOAD[0], "The download was removed from the cache; downloading it again…")
+        self._start_worker(self._redownload_worker, self.info, self.source_url or self.info.url,
+                           self.tools)
+        return False
+
     # ------------------------------------------------------------ trim, fades, cursor (M3)
     def _can_edit(self) -> bool:
-        """Sliders and preview work once the audio is downloaded and nothing is busy."""
+        """Sliders work once the audio is downloaded and nothing is busy."""
         return self.audio is not None and self.spec is not None and self.state not in BUSY
+
+    def _can_play(self) -> bool:
+        """The play buttons wait for the background preview to be ready."""
+        return self._can_edit() and self.preview_clip is not None and not self.preparing
 
     def _refresh_editing(self) -> None:
         on = self._can_edit()
         self.trim_slider.set_enabled(on)
         self.fade_slider.set_enabled(on)
-        active = self.player.playing or self.preparing
-        for key, btn in self.preview_btns.items():
-            btn.set_enabled(on and (active if key == "stop" else True))
+        play = self._can_play()
+        for btn in self.preview_btns.values():
+            btn.set_enabled(play)
+        self.play_btn.set_enabled(play)
+        self.play_btn.set_symbol("pause" if self.player.playing else "play")
 
     def _sync_sliders(self) -> None:
         """Push self.spec and self.cursor into both sliders and all the labels."""
@@ -556,15 +783,15 @@ class App(tk.Tk):
     def _trim_changed(self, start: float, end: float, final: bool) -> None:
         if self.spec is None:
             return
-        self._stop_preview()            # changing the trim while playing stops playback
         self._set_spec(TrimSpec(start, end, self.spec.fade_in, self.spec.fade_out))
+        self._schedule_preview()        # stops playback; the old preview no longer matches
 
     def _fade_changed(self, a: float, b: float, final: bool) -> None:
         if self.spec is None:
             return
-        self._stop_preview()
         s = self.spec
         self._set_spec(TrimSpec(s.start, s.end, a, s.length - b))
+        self._schedule_preview()
 
     def _seek_trim(self, t: float) -> None:
         self._seek(t)
@@ -578,75 +805,130 @@ class App(tk.Tk):
         preview is playing it carries on from the new spot."""
         if self.spec is None:
             return
-        was_active = self.player.playing or self.preparing
+        was_playing = self.player.playing
         self.cursor = min(max(t, self.spec.start), self.spec.end)
         self._show_cursor()
-        if was_active:
-            self._play()
+        if was_playing:
+            self._play_from_cursor()
 
-    # -- preview buttons (F5)
-    def preview_from_start(self) -> None:
-        if self._can_edit():
-            self.cursor = self.spec.start
-            self._play()
-
-    def preview_start(self) -> None:
-        if self._can_edit():
-            if self.cursor >= self.spec.end - 0.05:     # at the end: start over
-                self.cursor = self.spec.start
-            self._play()
-
-    def preview_from_end(self) -> None:
-        if self._can_edit():
-            self.cursor = trim.from_end_cursor(self.spec)
-            self._play()
-
-    def preview_stop(self) -> None:
-        self._stop_preview()
-
-    def _stop_preview(self) -> None:
-        """Stop playback (or a clip being prepared); the cursor stays where
-        playback reached."""
-        self._preview_token += 1
-        self.preparing = False
-        pos = self.player.stop()
-        if pos is not None and self.spec is not None:
-            self.cursor = min(max(pos, self.spec.start), self.spec.end)
-            self._show_cursor()
-        self._drop_clip()
-        self._refresh_editing()
-
-    def _drop_clip(self) -> None:
-        if self._clip is not None:
-            self._clip.unlink(missing_ok=True)
-            self._clip = None
-
-    def _play(self) -> None:
-        """Render a clip from the cursor to the trim end (on a worker), then play it."""
-        cursor = self.cursor
-        self._stop_preview()            # would move the cursor to where the old clip had got to
-        self.cursor = cursor
-        assert self.spec is not None and self.audio is not None
-        self._preview_token += 1
+    # -- the background preview (F5): one WAV of the whole trimmed range
+    def _schedule_preview(self, delay: int = PREVIEW_DEBOUNCE_MS) -> None:
+        """Throw away the current preview and make a new one for self.spec.
+        A render already running is killed; while a slider is being dragged
+        the new render waits until it has stopped moving for *delay* ms."""
+        self._drop_preview()
+        if not self._can_edit():
+            return
         self.preparing = True
+        if not self._prep_status_saved:
+            self._status_before_preview = self.status_var.get()
+            self._prep_status_saved = True
+        self._update_bar()
+        self._step(0.0, "Preparing preview…")
         self._refresh_editing()
-        self._show_cursor()
-        at = self.spec.start + trim.preview_offset(self.spec, self.cursor)
+        self._prep_after = self._after(delay, self._start_preview_render)
+
+    def _drop_preview(self) -> None:
+        """Pause playback, kill a render in progress, delete the old preview."""
+        self.pause()
+        self._preview_token += 1
+        if self._preview_cancel is not None:
+            self._preview_cancel.set()
+            self._preview_cancel = None
+        if self._prep_after is not None:
+            try:
+                self.after_cancel(self._prep_after)
+            except tk.TclError:
+                pass
+            self._afters.discard(self._prep_after)
+            self._prep_after = None
+        if self.preview_clip is not None:
+            self.preview_clip.unlink(missing_ok=True)
+            self.preview_clip = None
+        if self.preparing:
+            self.preparing = False
+            self._update_bar()
+
+    def _finish_preparing(self) -> None:
+        self.preparing = False
+        if self._prep_status_saved:
+            if self.state not in BUSY:          # don't overwrite "Saving… 40%"
+                self.status_var.set(self._status_before_preview)
+            self._prep_status_saved = False
+        self._update_bar()
+        self._refresh_editing()
+
+    def _start_preview_render(self) -> None:
+        self._prep_after = None
+        if not self.preparing or self.spec is None:
+            return
+        if not self._ensure_audio(self._schedule_preview):
+            return
+        self._preview_token += 1
+        self._preview_cancel = proc.Cancel()
         clip = self._tmp / f"preview-{self._preview_token}.wav"
         threading.Thread(target=self._preview_worker, daemon=True,
-                         args=(self._token, self._preview_token, self.tools["ffmpeg"],
-                               self.audio, self.spec, self.cursor, at, clip)).start()
+                         args=(self._token, self._preview_token, self._preview_cancel,
+                               self.tools["ffmpeg"], self.audio, self.spec, clip)).start()
 
-    def _preview_worker(self, token: int, ptoken: int, ffmpeg: str, audio: Path,
-                        spec: TrimSpec, cursor: float, at: float, clip: Path) -> None:
+    def _preview_worker(self, token: int, ptoken: int, cancel: proc.Cancel, ffmpeg: str,
+                        audio: Path, spec: TrimSpec, clip: Path) -> None:
         try:
-            out = render.render_preview(ffmpeg, audio, spec, cursor, clip)
+            out = render.render_preview(
+                ffmpeg, audio, spec, spec.start, clip, cancel=cancel,
+                on_fraction=lambda f: self._post(token, "preview_progress", ptoken, f))
             if out is not None:
-                self._post(token, "preview_ready", ptoken, out, at)
+                self._post(token, "preview_ready", ptoken, out)
         except render.RenderError as e:
             self._post(token, "preview_error", ptoken, e.message, e.details)
         except Exception as e:
             self._post(token, "preview_error", ptoken, f"Preview failed: {e}", repr(e))
+
+    # -- the play buttons (F5): From start · play/pause · From end
+    def preview_from_start(self) -> None:
+        if self._can_play():
+            self.cursor = self.spec.start
+            self._play_from_cursor()
+
+    def toggle_play(self) -> None:
+        """The round button and Space: play from the cursor, or pause."""
+        if self.player.playing:
+            self.pause()
+        elif self._can_play():
+            if self.cursor >= self.spec.end - 0.05:     # at the end: start over
+                self.cursor = self.spec.start
+            self._play_from_cursor()
+
+    def preview_from_end(self) -> None:
+        if self._can_play():
+            self.cursor = trim.from_end_cursor(self.spec)
+            self._play_from_cursor()
+
+    def pause(self) -> None:
+        """Stop playback; the cursor stays where playback reached. The
+        preview itself is kept, so playing again is instant."""
+        pos = self.player.stop()
+        if pos is not None and self.spec is not None:
+            self.cursor = min(max(pos, self.spec.start), self.spec.end)
+            self._show_cursor()
+        self._refresh_editing()
+
+    def _play_from_cursor(self) -> None:
+        assert self.spec is not None and self.preview_clip is not None
+        cursor = self.cursor
+        self.pause()                    # would move the cursor to where the old clip had got to
+        self.cursor = cursor
+        at = self.spec.start + trim.preview_offset(self.spec, cursor)
+        offset = at - self.spec.start
+        if offset < 0.01:
+            clip = self.preview_clip
+        else:
+            clip = slice_wav(self.preview_clip, self._tmp / "play.wav", offset)
+        self.player.play(clip, at)
+        self.cursor = at
+        self._show_cursor()
+        self._refresh_editing()
+        self._start_ticking()
 
     def _start_ticking(self) -> None:
         if not self._ticking:
@@ -664,7 +946,6 @@ class App(tk.Tk):
         self._ticking = False
         if self.player.finished and self.spec is not None:
             self.player.reset()
-            self._drop_clip()
             self.cursor = self.spec.end
             self._show_cursor()
             self._refresh_editing()
@@ -682,25 +963,54 @@ class App(tk.Tk):
             audio = cache.find_audio(info.id)
             if audio is None:
                 info_json = fetch.save_info(info, cache.info_path(info.id))
+                self._post(token, "step", STEP_THUMB, "Getting the thumbnail…")
                 thumb = fetch.fetch_thumbnail(ytdlp, info_json, cache.thumb_stem(info.id), cancel=cancel)
                 if thumb is not None:
                     self._post(token, "thumb", thumb)
-                audio = download.download(
-                    ytdlp, info.id, info_json, cancel=cancel,
-                    on_progress=lambda p: self._post(token, "progress", p.fraction))
+                if cancel.is_set:
+                    return self._post(token, "cancelled", DOWNLOADING)
+                audio = self._download(token, cancel, ytdlp, info.id, info_json)
                 if audio is None:
                     return self._post(token, "cancelled", DOWNLOADING)
                 settings.log(f"downloaded {info.id} → {audio.name}")
             else:
+                self._post(token, "step", STEP_DOWNLOAD[1], "Found it in the download cache…")
                 thumb = cache.thumb_stem(info.id).with_suffix(".png")
                 if thumb.exists():
                     self._post(token, "thumb", thumb)
+            self._post(token, "step", STEP_FINISH, "Finishing…")
             cache.prune(protect=info.id)
             self._post(token, "downloaded", audio)
         except (fetch.FetchError, download.DownloadError) as e:
-            self._post(token, "error", e.message, e.details)
+            self._post(token, "error", e.message, e.details, "fetch")
         except Exception as e:  # never leave the UI stuck in a busy state
-            self._post(token, "error", f"Something went wrong: {e}", repr(e))
+            self._post(token, "error", f"Something went wrong: {e}", repr(e), "fetch")
+
+    def _download(self, token: int, cancel: proc.Cancel, ytdlp: str, video_id: str,
+                  source) -> Path | None:
+        lo, hi = STEP_DOWNLOAD
+        self._post(token, "step", lo, "Downloading the audio…")
+
+        def progress(p: download.Progress) -> None:
+            if p.fraction is not None:
+                self._post(token, "step", lo + (hi - lo) * p.fraction,
+                           f"Downloading the audio… {int(p.fraction * 100)}%")
+
+        return download.download(ytdlp, video_id, source, cancel=cancel, on_progress=progress)
+
+    def _redownload_worker(self, token: int, cancel: proc.Cancel, info: fetch.VideoInfo,
+                           url: str, found: tools.Toolset) -> None:
+        try:
+            audio = self._download(token, cancel, found["yt-dlp"], info.id, url)
+            if audio is None:
+                return self._post(token, "cancelled", DOWNLOADING)
+            settings.log(f"downloaded again {info.id} → {audio.name}")
+            self._post(token, "step", STEP_FINISH, "Finishing…")
+            self._post(token, "downloaded", audio)
+        except download.DownloadError as e:
+            self._post(token, "error", e.message, e.details, "fetch")
+        except Exception as e:
+            self._post(token, "error", f"Something went wrong: {e}", repr(e), "fetch")
 
     def _save_worker(self, token: int, cancel: proc.Cancel, ffmpeg: str, audio: Path,
                      spec: TrimSpec, out: Path) -> None:
@@ -712,9 +1022,9 @@ class App(tk.Tk):
             settings.log(f"saved {saved}")
             self._post(token, "saved", saved)
         except render.RenderError as e:
-            self._post(token, "error", e.message, e.details)
+            self._post(token, "error", e.message, e.details, "bottom")
         except Exception as e:
-            self._post(token, "error", f"Something went wrong: {e}", repr(e))
+            self._post(token, "error", f"Something went wrong: {e}", repr(e), "bottom")
 
     # ------------------------------------------------------------ messages (Tk thread)
     def _dispatch(self, kind: str, payload: tuple) -> None:
@@ -726,66 +1036,86 @@ class App(tk.Tk):
             self._sync_sliders()
             self.title_var.set(info.title)
             self.meta_var.set(" · ".join(x for x in (info.channel, timecode.format_seconds(info.duration)) if x))
-            self.status_var.set("Downloading…")
-            self._set_state(DOWNLOADING)
+            self._set_state(DOWNLOADING)     # the worker posts the next step
         elif kind == "thumb":
             (path,) = payload
             self._show_thumbnail(path)
-        elif kind == "progress":
+        elif kind == "step":
+            fraction, message = payload
+            if self.state in BUSY:
+                self._step(fraction, message)
+        elif kind == "progress":                  # saving
             (fraction,) = payload
-            if fraction is not None:
-                self.progress.configure(value=fraction)
-                verb = "Saving" if self.state == SAVING else "Downloading"
-                self.status_var.set(f"{verb}… {int(fraction * 100)}%")
+            if fraction is not None and self.state == SAVING:
+                self._step(fraction, f"Saving… {int(fraction * 100)}%")
+        elif kind == "preview_progress":
+            ptoken, fraction = payload
+            if ptoken == self._preview_token and self.preparing and self.state not in BUSY:
+                self._step(fraction, f"Preparing preview… {int(fraction * 100)}%")
         elif kind == "downloaded":
             (audio,) = payload
             self.audio = audio
+            self._redownloading = False
             self.progress.configure(value=1.0)
             self.status_var.set("Ready. Trim and preview, pick the key if you like, then save.")
             self._set_state(READY)
+            self.focus_set()                # out of the link box, so Space plays
+            if self._pending is not None:
+                action, self._pending = self._pending, None
+                self._after(0, action)
+            elif self.preview_clip is None:
+                self._schedule_preview(delay=0)
         elif kind == "saved":
             (path,) = payload
             self.cfg["last_save_folder"] = str(path.parent)
             settings.save(self.cfg)
-            self.status_var.set(f"Saved “{path.name}” in {path.parent}.")
+            self._saving_part = None
+            self.saved_path = path
+            self.status_var.set(f"Saved “{path.name}” in {short_folder(path.parent)}.")
             self._set_state(SAVED)
         elif kind == "cancelled":
             (stage,) = payload
             self.progress.configure(value=0)
             settings.log(f"cancelled while {stage}")
+            self._pending = None
             if stage == SAVING:
+                self._saving_part = None
                 self.status_var.set("Save cancelled. Nothing was written.")
                 self._set_state(READY)
+            elif self._redownloading:
+                # a re-download was cancelled: keep the track, it just can't play or save yet
+                self._redownloading = False
+                self.status_var.set("Cancelled. Click Fetch to download the audio again.")
+                self._set_state(CANCELLED)
             else:
                 self._reset_for_new_url()
                 self.status_var.set("Cancelled.")
                 self._set_state(CANCELLED)
         elif kind == "preview_ready":
-            ptoken, clip, at = payload
+            ptoken, clip = payload
             if ptoken != self._preview_token or not self.preparing:
                 clip.unlink(missing_ok=True)
                 return
-            self.preparing = False
-            self._clip = clip
-            self.player.play(clip, at)
-            self.cursor = at
-            self._show_cursor()
-            self._refresh_editing()
-            self._start_ticking()
+            self._preview_cancel = None
+            self.preview_clip = clip
+            self._finish_preparing()
         elif kind == "preview_error":
             ptoken, message, details = payload
             if ptoken == self._preview_token:
-                self.preparing = False
-                self._refresh_editing()
-                self.details = details
-                self.status_var.set(message)
+                self._preview_cancel = None
+                self._finish_preparing()
+                if details:
+                    settings.log("preview error: " + message + "\n" + details)
+                self._show_error(message, details)
         elif kind == "error":
-            message, details = payload
+            message, details, where = payload
+            self._redownloading = False
+            self._pending = None
             if details:
                 settings.log("error: " + message + "\n" + details)
             if self.audio is None:
                 self._reset_for_new_url()
-            self._show_error(message, details)
+            self._show_error(message, details, where=where)
 
     def _show_thumbnail(self, path: Path) -> None:
         try:
@@ -798,15 +1128,34 @@ class App(tk.Tk):
         self._thumb_img = img
         self.thumb.configure(image=img, text="")
 
-    def _show_error(self, message: str, details: str = "") -> None:
+    def _show_error(self, message: str, details: str = "", where: str = "bottom") -> None:
+        """Fetch problems (bad link, lookup or download failures, missing
+        tools) show in a band right under the link box; save and preview
+        problems in the status line at the bottom. Both offer Details."""
         self.details = details
+        self.error_where = where
         self.progress.configure(value=0)
-        self.status_var.set(message)
         self._set_state(ERROR)
-        self.status_label.configure(fg=WARN)
-        if details:
-            self.details_link.configure(text="Details ▸")
-            self.details_link.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        if where == "fetch":
+            self.fetch_error_var.set(message)
+            self.status_var.set("")
+            self.fetch_error.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+            if details:
+                self.fetch_details_link.configure(text="Details ▸")
+                self.fetch_details_link.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 8))
+        else:
+            self.status_var.set(message)
+            self.status_label.configure(fg=WARN)
+            if details:
+                self.details_link.configure(text="Details ▸")
+                self.details_link.grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+    def _clear_fetch_error(self) -> None:
+        if self.fetch_error.winfo_ismapped() or self.fetch_error_var.get():
+            self.fetch_error_var.set("")
+            self.fetch_error.grid_remove()
+            self.fetch_details_link.grid_remove()
+            self.fetch_details_box.grid_remove()
 
     def _hide_details(self) -> None:
         self.status_label.configure(fg=self._status_fg)
@@ -818,16 +1167,22 @@ class App(tk.Tk):
         if not self.details:
             return
         self.details_shown = not self.details_shown
+        fetch_area = getattr(self, "error_where", "bottom") == "fetch"
+        box = self.fetch_details_box if fetch_area else self.details_box
+        link = self.fetch_details_link if fetch_area else self.details_link
         if self.details_shown:
-            self.details_box.configure(state="normal")
-            self.details_box.delete("1.0", "end")
-            self.details_box.insert("1.0", self.details)
-            self.details_box.configure(state="disabled")
-            self.details_box.grid(row=13, column=0, sticky="nsew", pady=(6, 0))
-            self.details_link.configure(text="Details ▾")
+            box.configure(state="normal")
+            box.delete("1.0", "end")
+            box.insert("1.0", self.details)
+            box.configure(state="disabled")
+            if fetch_area:
+                box.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+            else:
+                box.grid(row=13, column=0, sticky="nsew", pady=(6, 0))
+            link.configure(text="Details ▾")
         else:
-            self.details_box.grid_remove()
-            self.details_link.configure(text="Details ▸")
+            box.grid_remove()
+            link.configure(text="Details ▸")
 
     # ------------------------------------------------------------ close
     def _on_close(self) -> None:
@@ -836,6 +1191,12 @@ class App(tk.Tk):
         self._closing = True
         if self._cancel is not None:
             self._cancel.set()            # kills any running yt-dlp / ffmpeg
+        if self._worker is not None and self._worker.is_alive():
+            self._worker.join(timeout=4)  # let it clean up its partial files
+        if self._saving_part is not None:
+            self._saving_part.unlink(missing_ok=True)
+        if self._preview_cancel is not None:
+            self._preview_cancel.set()
         self.player.stop()
         shutil.rmtree(self._tmp, ignore_errors=True)
         for tid in list(self._afters):
@@ -844,11 +1205,12 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
         self._afters.clear()
-        if self.title_sheet is not None:
-            try:
-                self.title_sheet.close()
-            except tk.TclError:
-                pass
+        for dialog in (self.title_sheet, self.prereq_dialog):
+            if dialog is not None:
+                try:
+                    dialog.close()
+                except tk.TclError:
+                    pass
         # Flush pending idle redraws and focus changes now: Tcl's idle queue is
         # per thread, so ones left behind would run against destroyed windows.
         try:

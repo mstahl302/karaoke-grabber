@@ -68,7 +68,7 @@ def test_fetch_info_failure_keeps_details(fake_run):
     fake_run.on(lambda a: True, lambda a, ol, c: result(
         a, returncode=1, stderr="ERROR: [youtube] x: This video is unavailable"))
     with pytest.raises(fetch.FetchError) as e:
-        fetch.fetch_info("yt-dlp", "https://youtu.be/x")
+        fetch.fetch_info("yt-dlp", "https://youtu.be/xxxxxxxxxxx")
     assert "unavailable" in e.value.message
     assert "$ yt-dlp -J" in e.value.details
     assert "This video is unavailable" in e.value.details
@@ -76,7 +76,7 @@ def test_fetch_info_failure_keeps_details(fake_run):
 
 def test_fetch_info_cancelled_returns_none(fake_run):
     fake_run.on(lambda a: True, lambda a, ol, c: result(a, returncode=-15, cancelled=True))
-    assert fetch.fetch_info("yt-dlp", "https://youtu.be/x") is None
+    assert fetch.fetch_info("yt-dlp", "https://youtu.be/xxxxxxxxxxx") is None
 
 
 def test_empty_url_needs_no_subprocess(fake_run):

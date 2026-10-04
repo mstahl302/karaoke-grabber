@@ -63,21 +63,21 @@ use the terminal for this.
 
 | # | Feature | Requirements |
 |---|---------|--------------|
-| F1 | **Fetch from URL** | Paste a YouTube URL, then click Fetch or press Return. Show the title, channel, duration and thumbnail. Clear message for an invalid or unavailable URL. |
+| F1 | **Fetch from URL** | Paste a YouTube video link, then click Fetch or press Return. Show the title, channel, duration and thumbnail. Only one well-formed link to a single YouTube video is accepted (`https://…`, nothing else in the box); anything else, and any lookup or download failure, gets a clear message right under the link box. |
 | F15 | **Editable song title** | Prefilled with the YouTube video title. A pencil button next to the title opens a small sheet with a text field to edit it (Return saves, Esc cancels). Resets for each new URL. The title feeds the prefilled filename (F8). |
 | F16 | **Prerequisite check** | On launch, the app checks for Homebrew, yt-dlp, ffmpeg and deno. If any are missing, it says which and shows the one command to run, with a Copy button (e.g. `brew install yt-dlp ffmpeg deno`). If Homebrew itself is missing, it points to the README's setup section. |
 | F2 | **Audio only, MP3 out** | Saves high-quality MP3 (best variable bitrate, V0). No video. |
 | F3 | **Download once, trim many** | The audio downloads once per URL. Changing the trim points or the key never downloads it again. |
 | F4 | **Trim** | A slider allows you to trim the track. Visual representation of trim, with read-only numerical values (in seconds) updated on the fly.<br><br>Trim is applied to the preview (below) and on save. |
-| F5 | **Preview by ear** | A row of buttons: **From start** moves the cursor to the trim start and plays. **Start** plays from the cursor. **Stop** pauses and leaves the cursor where it is. **From end** plays the last 10 seconds up to the trim end, leaving the cursor at the end. A playback cursor shows on both sliders, kept in sync; clicking either slider's track moves the cursor there.<br><br>The preview reflects the current trim settings, so it starts and ends based on the trim slider. |
+| F5 | **Preview by ear** | **From start**, a round **play/pause** button, and **From end**. From start moves the cursor to the trim start and plays. The round button shows ▶ when stopped and ❚❚ while playing: it plays from the cursor or pauses, leaving the cursor where it is. From end plays the last 10 seconds up to the trim end, leaving the cursor at the end. A playback cursor shows on both sliders, kept in sync; clicking either slider's track moves the cursor there.<br><br>The preview is prepared in the background as soon as the audio is downloaded, and again whenever a slider changes (a preparation still running is stopped and restarted). The play buttons stay disabled until it's ready; after that, moving the cursor and playing or pausing is instant, as often as you like. The preview reflects the current trim and fades. |
 | F6 | **Fades** | A second slider covering only the trimmed range; it updates as the trim changes. Its two handles move in from the ends to set the fade-in and fade-out, shown as read-only seconds relative to the trim, like the trim slider. Off by default (handles at the ends).<br><br>Preview reflects the current fade settings. |
 | F7 | **Optional Key dropdown** | 24 keys, written as words: C, D-flat, D, E-flat, E, F, F-sharp, G, A-flat, A, B-flat, B, and C minor, C-sharp minor, D minor, E-flat minor, E minor, F minor, F-sharp minor, G minor, G-sharp minor, A minor, B-flat minor, B minor. Starts at **— none —** (no key) and resets for each new URL; choosing — none — clears a picked key.<br><br>The key is optional: with no key, it's left out of the filename (F8). |
 | F8 | **Prefilled filename** | The Save dialog proposes `<Song Title> - AUDIO - <key>.mp3` from the song title (F15) and key, e.g. Defying Gravity - AUDIO - B-flat.mp3, or `<Song Title> - AUDIO.mp3` when no key is picked. V1 doesn't clean up the title automatically. Characters macOS doesn't allow in filenames (/ and :) are replaced. The dialog opens in the last-used folder. |
 | F9 | **Save to local disk** | Saves only to the Mac. |
-| F10 | **Progress & Cancel** | A full-width progress bar and status text under the Save button. They walk through each step with a short message (looking up the video, getting the thumbnail, downloading, finishing, preparing a preview, saving), so a long download never looks stuck. Cancel works at every stage and never leaves a half-written file. |
+| F10 | **Progress & Cancel** | A full-width progress bar and status text under the Save button. They walk through each step with a short message (looking up the video, getting the thumbnail, downloading, finishing, preparing a preview, saving), so a long download never looks stuck. A **Cancel** button beside them works at every stage and never leaves a half-written file. |
 | F11 | **Plain-English errors** | A friendly message, with a **Details** toggle that shows the tool output. If a download fails, the message suggests that yt-dlp may be out of date and how to update it, then the attempt stops. |
 | F12 | **Mac app with icon** | `Karaoke Grabber.app` launches from /Applications or the Dock, with its own icon (§7). |
-| F13 | **Small conveniences** | "Reveal in Finder" after saving. Space starts and stops preview playback. ⌘S saves. ⌘Q quits cleanly. |
+| F13 | **Small conveniences** | "Reveal in Finder" after saving. Space plays and pauses the preview (clicking outside the link box first). ⌘S saves. ⌘Q quits cleanly. |
 | F14 | **Published on GitHub** | V1 pushed to a private GitHub repo with a meaningful README. See [dev_environment.md](dev_environment.md). |
 
 ## 6. UI
@@ -91,8 +91,10 @@ Top to bottom:
 - **URL and Fetch**, then the info card (thumbnail, editable song title with a pencil button, channel, duration) with the optional **Key** dropdown. Everything below is disabled until a fetch succeeds; the sliders and preview become active once the download finishes.
 - **Trim:** a slider spanning the whole track. Its two handles set Start and End; under it, the read-only Start and End values in seconds and the trimmed length update as you drag.
 - **Fade:** a second slider spanning only the trimmed range, so it rescales whenever the trim changes. Its handles move in from the ends; under it, the read-only fade-in and fade-out lengths in seconds, relative to the trim. Handles at the ends mean no fade, which is the default.
-- **Preview:** From start, Start (from the cursor), Stop, From end. A playback cursor shows on both sliders at the same moment in the song.
-- **Save:** a full-width **Save MP3…** button. While it's disabled, it says why, e.g. "fetch a video first". The save progress bar, status and Cancel sit beneath it.
+- **Preview:** From start, a larger round play/pause button (a symbol, no words), From end. A playback cursor shows on both sliders at the same moment in the song.
+- **Save:** a full-width **Save MP3…** button. While it's disabled, it says why, e.g. "fetch a video first". The save progress bar, status and Cancel sit beneath it; after a save, a **Reveal in Finder** link appears there.
+
+The window keeps its light look when macOS is in Dark Mode.
 
 ## 7. App icon
 

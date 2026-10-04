@@ -256,9 +256,30 @@ setting to choose another quality, e.g. constant 320 kbps or a smaller
 
 ### FR10. Faster previews of very long videos
 
-A preview is one WAV clip from the cursor to the trim end. For a song
-that's ready in under a second, but for a very long video (a full concert,
-say) it can take several seconds; V1 shows "Preparing preview…" with
-progress while it waits. If that ever becomes a nuisance, render the
-preview in pieces of about 60 s and start playing the first one at once.
-Probably never needed for songs.
+The preview is one WAV of the whole trimmed range, made in the background.
+For a song that's ready in under a second, but for a very long video (a
+full concert, say) it can take several seconds; V1 shows "Preparing
+preview…" with progress while it waits. If that ever becomes a nuisance,
+render the preview in pieces of about 60 s and start playing the first one
+at once. Probably never needed for songs.
+
+### FR11. Keep the play buttons responsive while the preview is remade
+
+Every trim or fade change remakes the background preview, and the play
+buttons are disabled until it's ready: about half a second for a song,
+longer for long tracks or a busy Mac. Ideas, roughly from cheapest to
+most work:
+
+- **Queue the press.** Keep the play buttons enabled while the preview is
+  being made; a press shows a small "preparing" state on the button and
+  playback starts the moment the preview is ready.
+- **Reuse the old preview when the change allows it.** Moving the trim end
+  with no fade-out, or the trim start with no fade-in, only shortens the
+  existing WAV, which is an instant cut instead of a new render.
+- **Re-render only what changed.** A fade change affects just the first or
+  last few seconds; render those and splice them onto the unchanged middle.
+- **Cursor first.** Render the 15 s after the cursor first so playback can
+  start almost at once, then the rest of the range.
+- **A lighter preview.** Render the preview as 22 kHz mono instead of 48 kHz
+  stereo, about an eighth of the data to write. The saved MP3 keeps full
+  quality.

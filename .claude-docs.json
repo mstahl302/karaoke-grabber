@@ -7,13 +7,13 @@
       "doc_id": "d2209d03-c9f5-4e6f-a275-c78a04d2affc",
       "tab_id": "2e8177c4-daab",
       "body_id": "66da9133-8a5b",
-      "synced_rev": 373,
-      "synced_sha256": "f5b5ab7886f1aeb2c4ee216ee6fa6245ffee1276f7d8e517fe0fb6559dddb653",
+      "synced_rev": 378,
+      "synced_sha256": "233c43ec7b8080bf003296cf57d6ff4ec6cefa405310cc036ba8b059e1bf63ce",
       "images": {
         "docs/ui_mockup.png": {
-          "blob": "blob/21dbdf6e-c703",
-          "asset": "fe7b0e29caa1e2e8e00af5e4679b0922",
-          "sha256": "64062c8182b1f72cc31e57eb8bc8687434e2dfa8f8c15b37b633c35c71380151"
+          "blob": "blob/ce9c3452-2aae",
+          "asset": "8fb23f72c7e50c84beca5752cb96dab6",
+          "sha256": "cb5b8bc9bcbdc5b96f048840b8dc1ce5c77a7821bfe202cde98873c657707a74"
         }
       }
     },
@@ -23,8 +23,8 @@
       "doc_id": "34dd15ed-d25a-48a4-a1fd-440f3ea723b0",
       "tab_id": "7f45893b-3b59",
       "body_id": "f06343ac-7c84",
-      "synced_rev": 38,
-      "synced_sha256": "46a5e0dad35ba99ea592b605413291a2999823a64f6d1674b1dc100b61768d5d"
+      "synced_rev": 41,
+      "synced_sha256": "9225e897ae39fa12f062646e9494c949a3d9f8ba512e47c56890dd706f6859f8"
     },
     "docs/dev_environment.md": {
       "title": "Karaoke Grabber — Dev Environment",
@@ -41,8 +41,8 @@
       "doc_id": "35921c14-93e1-4644-b81e-9f2fd5d39575",
       "tab_id": "3d12e6b2-625c",
       "body_id": "a86b4962-0945",
-      "synced_rev": 26,
-      "synced_sha256": "21e634080b0088c0320d08679929ac7582f5a7927800864f944dc9f0ec1d288c"
+      "synced_rev": 27,
+      "synced_sha256": "d74d017c15df062be8a699e3c2e8b718414424f9028d0cbfe4f2f6322d9cfdcf"
     },
     "docs/build_plan.md": {
       "title": "Karaoke Grabber — Build Plan",
@@ -50,8 +50,8 @@
       "doc_id": "e3c09edd-7622-4a91-b991-65feb4738873",
       "tab_id": "b6905fe2-9020",
       "body_id": "add13309-b3a2",
-      "synced_rev": 22,
-      "synced_sha256": "fee4e44078148c520a9e9562554bf5260f8c7494d2bd4b88fa54a7d6985c676a"
+      "synced_rev": 25,
+      "synced_sha256": "6dcc578a78b3de68b59028c43b6cac98fdf15dcb6fa57876cba8648d9ec9ad13"
     },
     "README.md": {
       "title": "Karaoke Grabber — README",

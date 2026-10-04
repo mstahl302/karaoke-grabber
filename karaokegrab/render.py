@@ -16,6 +16,29 @@ from karaokegrab.trim import TrimSpec
 
 FAILED = "Saving the MP3 failed. See Details for ffmpeg's output."
 PREVIEW_FAILED = "Making the preview failed. See Details for ffmpeg's output."
+DISK_FULL = "Not saved: the disk is full. Free some space or save somewhere else."
+NOT_WRITABLE = "Not saved: that folder can't be written to. Pick another folder."
+SOURCE_GONE = "The downloaded audio is missing. Click Fetch to download it again."
+
+_ERRORS = (
+    (("no space left on device", "disk full", "disk quota"), DISK_FULL),
+    (("permission denied", "read-only file system", "operation not permitted"), NOT_WRITABLE),
+)
+
+
+def friendly_error(output: str, default: str) -> str:
+    low = output.lower()
+    for needles, message in _ERRORS:
+        if any(n in low for n in needles):
+            return message
+    return default
+
+
+def check_writable(folder: Path) -> str:
+    """'' if *folder* can take a new file, else the message to show."""
+    if not folder.is_dir() or not os.access(folder, os.W_OK):
+        return NOT_WRITABLE
+    return ""
 
 OnFraction = Callable[[float], None]
 
@@ -62,7 +85,7 @@ def _run(argv: list[str], expected: float, part: Path, final: Path, failed: str,
         return None
     if r.returncode != 0 or not part.exists():
         part.unlink(missing_ok=True)
-        raise RenderError(failed, r.output)
+        raise RenderError(friendly_error(r.output, failed), r.output)
     os.replace(part, final)
     return final
 

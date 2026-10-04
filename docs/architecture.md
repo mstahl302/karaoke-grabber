@@ -46,6 +46,7 @@ main.py                 Tkinter UI + workflow state machine
 karaokegrab/
   __main__.py           tiny CLI for M1: python -m karaokegrab URL --key B-flat --start 4.5 --end 339
   tools.py              locate yt-dlp / ffmpeg / ffprobe / deno; report what's missing
+  links.py              pure: one well-formed http(s) link only; YouTube video links only; spot playlist-only links
   fetch.py              yt-dlp --dump-json → VideoInfo (id, title, channel, duration, thumbnail); title prefills the song title
   download.py           yt-dlp best-audio download into the cache; progress parsing; cancel
   keys.py               the 24 key names in words, e.g. B-flat, C-sharp minor (dropdown + filename)
@@ -119,19 +120,23 @@ YouTube is looked up only once per URL.
 - Final save: `ffmpeg -ss <start> -t <length> -i <cache> -af "afade=t=in:st=0:d=…,afade=t=out:st=…:d=…" -c:a libmp3lame -q:a 0 -progress pipe:1 -f mp3 <path>.part`,
   then an atomic rename to `<path>`. Cancel kills ffmpeg and deletes the
   `.part` file.
-- Previews: the same pipeline (same trim and fades), rendered from the
-  cursor position to the trim end into a temp WAV for instant startup, then
-  played by `afplay`. `afplay` can't pause or seek, so **Stop** terminates
-  it and sets the cursor to where playback had reached (start position +
-  elapsed time); **Start** renders again from the cursor. **From start**
-  sets the cursor to the trim start; **From end** plays the last 10 s up
-  to the trim end.
-- A preview seeks straight to the cursor and keeps the source timestamps
-  (`-copyts`), with the fades placed at their absolute times in the track.
-  The clip is sample-for-sample the matching part of the final render,
-  and it's ready in about 0.1–0.7 s (longer clips take longer to write).
-  **Start** with the cursor at the trim end starts over from the trim start.
-  Clicking a slider's track while a preview plays continues from there.
+- Previews: one WAV of the whole trimmed range (same trim and fades as the
+  save), rendered in the background as soon as the download finishes and
+  again after every trim or fade change. A slider change kills a render
+  in progress; while a handle is being dragged, the new render waits until
+  it has been still for 250 ms. The play buttons are disabled until the
+  preview is ready (about 0.4–0.7 s for a song).
+- `afplay` can't seek, so playing from the cursor cuts the tail of the
+  preview WAV from that point (`player.slice_wav`, a byte copy of a few
+  milliseconds) and plays that; pause kills `afplay` and keeps the cursor
+  where playback reached. The preview itself survives pausing, moving the
+  cursor and saving, so replaying is instant.
+- The preview render keeps the source timestamps (`-copyts`), with the
+  fades at their absolute times in the track, so it is sample-for-sample
+  the matching part of the final render. **From start** plays from the
+  trim start, the round button plays from the cursor (or the trim start if
+  the cursor is at the end), **From end** plays the last 10 s. Clicking a
+  slider's track while a preview plays continues from there.
 - The playback cursor is one time value in `main.py` state, drawn on both
   sliders (trim slider: absolute time; fade slider: time relative to the
   trim start), advanced by a Tk `after()` timer while playing, and set by
@@ -161,6 +166,37 @@ YouTube is looked up only once per URL.
 - On startup, `tools.py` checks for Homebrew, yt-dlp, ffmpeg and deno
   (F16). Missing tools produce a dialog with the one command to run and a
   Copy button; a missing Homebrew points to the README.
+- Links are checked on the Tk thread before any yt-dlp call (`links.py`):
+  the box must hold exactly one well-formed `http(s)://` link to a single
+  YouTube video. Anything else, playlist-only links (yt-dlp would first
+  list the whole playlist) and other sites are rejected at once.
+- Fetch problems (a bad link, lookup or download failures, missing tools)
+  show in a band right under the link box, with their own **Details**;
+  save and preview problems use the status line at the bottom.
+- Download and save failures are told apart: a network drop, a full disk
+  or an unwritable folder each get their own message instead of
+  "update yt-dlp". Every error keeps the tool output for **Details** and
+  the log.
+- If the cached audio disappears while the app is open (macOS can clear
+  caches), Preview or Save downloads it again and then carries on.
+- Quitting during a save cancels ffmpeg, waits briefly for the worker and
+  deletes the `.part` file.
+
+### 5.6 Progress and appearance
+
+- One progress bar runs across the whole Fetch, with a message at each
+  stop: looking up (3%), thumbnail (8%), downloading (10–95%, real
+  progress), finishing (98%). The background preview then shows
+  "Preparing preview…" with ffmpeg's progress. The bar is hidden when
+  nothing is running. A **Cancel** button sits beside it during Fetch and
+  Save.
+- Clicking anywhere outside a text field takes keyboard focus out of it
+  (Canvas sliders don't take focus themselves), and focus leaves the link
+  box when a fetch finishes, so **Space** plays and pauses.
+- The window keeps its light look in Dark Mode
+  (`::tk::unsupported::MacWindowStyle appearance … aqua` on every window),
+  because its cards, sliders and buttons use fixed light colours that
+  Dark Mode's light-coloured text would make unreadable.
 
 ## 6. Files on disk
 

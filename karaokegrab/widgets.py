@@ -98,3 +98,63 @@ def button(parent, text: str, colour: str, command, *, big: bool = False) -> But
 
 def recolour(btn: Button, colour: str) -> None:
     btn.recolour(colour)
+
+
+class RoundButton(tk.Canvas):
+    """A round button with a white symbol: ``"play"`` (a forward triangle)
+    or ``"pause"`` (two bars). Drawn on a Canvas, since aqua can't make a
+    round tk.Button. Like :class:`Button`: ``set_enabled(bool)``."""
+
+    def __init__(self, parent, colour: str, command, *, size: int = 56, bg: str | None = None):
+        bg = bg or parent.winfo_toplevel().cget("background")
+        super().__init__(parent, width=size, height=size, bg=bg, highlightthickness=0, bd=0,
+                         cursor=HAND)
+        self.size = size
+        self._colour = colour
+        self._command = command
+        self._enabled = True
+        self._hover = False
+        self.symbol = "play"
+        self.bind("<Enter>", lambda _e: self._set_hover(True))
+        self.bind("<Leave>", lambda _e: self._set_hover(False))
+        self.bind("<ButtonRelease-1>", self._release)
+        self._draw()
+
+    def set_symbol(self, symbol: str) -> None:
+        if symbol != self.symbol:
+            self.symbol = symbol
+            self._draw()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = bool(enabled)
+        tk.Canvas.configure(self, cursor=HAND if self._enabled else "")
+        self._draw()
+
+    def _set_hover(self, on: bool) -> None:
+        self._hover = on
+        self._draw()
+
+    def _release(self, e) -> None:
+        inside = 0 <= e.x < self.size and 0 <= e.y < self.size
+        if self._enabled and inside and self._command:
+            self._command()
+
+    def _draw(self) -> None:
+        self.delete("all")
+        s = self.size
+        fill = self._colour
+        if not self._enabled:
+            fill = _fade(fill)
+        elif self._hover:
+            fill = darken(fill)
+        self.create_oval(1, 1, s - 1, s - 1, fill=fill, outline="")
+        c = s / 2
+        if self.symbol == "pause":
+            w, h, gap = s * 0.11, s * 0.36, s * 0.07
+            for x0 in (c - gap - w, c + gap):
+                self.create_rectangle(x0, c - h / 2, x0 + w, c + h / 2, fill="white", outline="")
+        else:
+            h = s * 0.40
+            # nudged right so the triangle looks centred
+            self.create_polygon(c - h * 0.36, c - h / 2, c - h * 0.36, c + h / 2, c + h * 0.62, c,
+                                fill="white", outline="")

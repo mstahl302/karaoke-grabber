@@ -17,6 +17,19 @@ PROGRESS_TEMPLATE = (
 
 FAILED = ("YouTube download failed. yt-dlp may be out of date; "
           "update it with: brew upgrade yt-dlp")
+NETWORK = ("The download stopped because the internet connection dropped. "
+           "Check it and click Fetch again.")
+
+# yt-dlp output that means the network, not yt-dlp, is the problem.
+_NETWORK_HINTS = ("timed out", "connection reset", "connection aborted", "connection refused",
+                  "network is unreachable", "temporary failure in name resolution",
+                  "nodename nor servname", "failed to resolve", "unable to download webpage",
+                  "remote end closed connection", "incompleteread", "no route to host")
+
+
+def friendly_error(output: str) -> str:
+    low = output.lower()
+    return NETWORK if any(h in low for h in _NETWORK_HINTS) else FAILED
 
 
 class DownloadError(Exception):
@@ -101,5 +114,5 @@ def download(ytdlp: str, video_id: str, source: str | Path,
     audio = cache.find_audio(video_id, root)
     if r.returncode != 0 or audio is None:
         cache.remove_partials(video_id, root)
-        raise DownloadError(FAILED, r.output)
+        raise DownloadError(friendly_error(r.output), r.output)
     return audio

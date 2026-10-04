@@ -6,7 +6,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from karaokegrab import proc
+from karaokegrab import links, proc
+from karaokegrab.trim import MIN_LENGTH
 
 # Substrings of yt-dlp's error output → the message we show. First match wins.
 _ERRORS: tuple[tuple[str, str], ...] = (
@@ -29,6 +30,8 @@ _ERRORS: tuple[tuple[str, str], ...] = (
 
 GENERIC = ("Couldn't look up that video. yt-dlp may be out of date; "
            "update it with: brew upgrade yt-dlp")
+PLAYLIST = "That's a playlist link. Paste the link of a single video."
+NOT_YOUTUBE = "Only YouTube links for now. Paste a youtube.com or youtu.be link."
 
 
 class FetchError(Exception):
@@ -63,13 +66,15 @@ def parse_info(data: dict) -> VideoInfo:
     """``yt-dlp -J`` JSON → VideoInfo. Raises FetchError for playlists,
     live streams and entries with no duration."""
     if data.get("_type", "video") != "video" or "entries" in data:
-        raise FetchError("That's a playlist link. Paste the link of a single video.")
+        raise FetchError(PLAYLIST)
     live = data.get("live_status")
     if data.get("is_live") or live in ("is_live", "is_upcoming", "post_live"):
         raise FetchError("That's a live stream. Only finished videos can be downloaded.")
     duration = data.get("duration")
     if not duration:
         raise FetchError("Couldn't tell how long that video is, so it can't be trimmed.")
+    if float(duration) < MIN_LENGTH:
+        raise FetchError("That video is too short to trim (under a second).")
     return VideoInfo(
         id=str(data["id"]),
         title=str(data.get("title") or ""),
@@ -81,15 +86,38 @@ def parse_info(data: dict) -> VideoInfo:
     )
 
 
+NOT_A_LINK = ("That isn't a web address. Paste just the YouTube link, "
+              "starting with https://")
+NOT_A_VIDEO = ("That's not a link to a YouTube video. Paste the link of one video "
+               "(it has watch?v= in it, or starts with youtu.be/).")
+
+
+def check_url(text: str) -> str:
+    """The link to fetch from what was pasted; raises FetchError for an
+    empty box, anything but one well-formed link, a playlist-only link, a
+    non-YouTube link or a YouTube link that isn't a video, before any
+    yt-dlp call."""
+    if not text.strip():
+        raise FetchError("Paste a YouTube link first.")
+    url = links.well_formed(text)
+    if url is None:
+        raise FetchError(NOT_A_LINK)
+    if not links.is_youtube(url):
+        raise FetchError(NOT_YOUTUBE)
+    if links.is_playlist_only(url):
+        raise FetchError(PLAYLIST)
+    if not links.is_video(url):
+        raise FetchError(NOT_A_VIDEO)
+    return url
+
+
 def info_argv(ytdlp: str, url: str) -> list[str]:
     return [ytdlp, "-J", "--no-playlist", "--no-warnings", url]
 
 
 def fetch_info(ytdlp: str, url: str, cancel: proc.Cancel | None = None) -> VideoInfo | None:
     """Look up *url*. Returns None if cancelled; raises FetchError on failure."""
-    url = url.strip()
-    if not url:
-        raise FetchError("Paste a YouTube link first.")
+    url = check_url(url)
     r = proc.run(info_argv(ytdlp, url), cancel=cancel)
     if r.cancelled:
         return None

@@ -288,6 +288,8 @@ def test_fetch_error_shows_friendly_message_and_details(all_tools, fake_run, app
     app.toggle_details()
     app.update()
     assert not app.fetch_details_box.winfo_ismapped()
+    app.url_entry.focus_force()                            # key events go to the focus window
+    app.update()
     app.url_entry.event_generate("<Key>", keysym="a")      # editing the link clears it
     app.update()
     assert not app.fetch_error.winfo_ismapped()

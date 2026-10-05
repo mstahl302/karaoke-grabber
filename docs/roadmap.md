@@ -2,7 +2,7 @@
 
 **Status:** BACKLOG. Nothing here is in V1. Scope for V1 is defined in
 [product_spec.md](product_spec.md).
-**Date:** 2026-10-03
+**Date:** 2026-10-04
 **Owner:** markstahl
 
 Work after V1 falls into two groups:

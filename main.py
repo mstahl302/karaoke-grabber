@@ -1224,6 +1224,10 @@ class App(tk.Tk):
 
 
 def main() -> None:
+    if "--self-test" in sys.argv[1:]:
+        from karaokegrab import selftest
+        args = [a for a in sys.argv[1:] if a != "--self-test"]
+        sys.exit(selftest.run(*args[:1]))
     App().mainloop()
 
 

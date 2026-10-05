@@ -1,7 +1,7 @@
 # Karaoke Grabber — Dev Environment
 
-**Status:** DRAFT rev 0.4.
-**Date:** 2026-10-02
+**Status:** V1.
+**Date:** 2026-10-04
 **Related:** [product_spec.md](product_spec.md) · [architecture.md](architecture.md) · [build_plan.md](build_plan.md) · [roadmap.md](roadmap.md)
 
 This plan covers setting up the development machine, the project
@@ -89,8 +89,10 @@ self-contained build is listed as Feature request FR8 in [roadmap.md](roadmap.md
 -r requirements.txt
 pyinstaller>=6
 pytest>=8
-pymupdf>=1.24     # only for assets/make_icon.py (SVG → PNG → .icns)
 ```
+
+The icon is made with tools that ship with macOS (`sips` and `iconutil`,
+see `assets/make_icon.py`), so no imaging packages are needed.
 
 Setup:
 

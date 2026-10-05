@@ -1,7 +1,7 @@
 # Karaoke Grabber — Product Spec
 
-**Status:** DRAFT rev 0.5 — all open questions resolved; the key is optional
-**Date:** 2026-10-03
+**Status:** V1, shipped as v1.0
+**Date:** 2026-10-04
 **Owner:** markstahl
 **Related:** [architecture.md](architecture.md) · [build_plan.md](build_plan.md) · [dev_environment.md](dev_environment.md) · [roadmap.md](roadmap.md)
 

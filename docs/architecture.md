@@ -1,7 +1,7 @@
 # Karaoke Grabber — Architecture
 
-**Status:** DRAFT rev 0.3
-**Date:** 2026-10-02
+**Status:** V1, shipped as v1.0
+**Date:** 2026-10-04
 **Owner:** markstahl
 **Related:** [product_spec.md](product_spec.md) · [build_plan.md](build_plan.md) · [dev_environment.md](dev_environment.md) · [roadmap.md](roadmap.md)
 

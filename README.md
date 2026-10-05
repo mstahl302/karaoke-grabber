@@ -3,47 +3,135 @@
 ![tests](https://github.com/mstahl302/karaoke-grabber/actions/workflows/ci.yml/badge.svg)
 
 A small macOS app that turns a YouTube karaoke (backing) track into a
-trimmed, correctly named MP3: `<Song Title> - AUDIO - <key>.mp3` (the key
-is optional).
+trimmed, faded, correctly named MP3: `<Song Title> - AUDIO - <key>.mp3`
+(the key is optional). Paste a link, trim off the intro and outro by ear,
+add fades if you like, and save.
 
-**Status:** in development (M0–M3 done: the window fetches, trims, fades,
-previews and saves; M4 polish is next). The full README
-arrives with V1; its outline is in
-[docs/dev_environment.md](docs/dev_environment.md) §6.
+![Karaoke Grabber with a track loaded, trimmed and playing](docs/screenshot_main.png)
+
+**Using the app?** See the **[User's Guide](USER_GUIDE.md)** for a
+step-by-step walkthrough. This file is for installing, building and
+developing it.
 
 ## Requirements
 
-- macOS on Apple Silicon
-- [Homebrew](https://brew.sh), then `brew install yt-dlp ffmpeg deno`
-- Python 3.14 from [python.org](https://www.python.org/downloads/macos/)
-  (it ships Tk 9; the system `/usr/bin/python3` doesn't)
+- macOS on Apple Silicon.
+- **Homebrew**, the free tool that installs the rest. If you don't have it,
+  open Terminal and paste the one-line install command from
+  [brew.sh](https://brew.sh), then follow what it prints.
+- **yt-dlp, ffmpeg and deno**, installed with Homebrew:
+
+  ```bash
+  brew install yt-dlp ffmpeg deno
+  ```
+
+  The app finds them in `/opt/homebrew/bin` by itself. If any are missing,
+  it says which and shows this command with a Copy button.
+- To build the app: **Python 3.14 from
+  [python.org](https://www.python.org/downloads/macos/)**. It ships Tk 9,
+  which the window needs; the system `/usr/bin/python3` (3.9, Tk 8.5)
+  won't do.
+
+## Install / build
+
+```bash
+git clone https://github.com/mstahl302/karaoke-grabber.git ~/Development/karaoke-grabber
+~/Development/karaoke-grabber/run.sh
+```
+
+`run.sh` creates the virtualenv the first time, builds
+`dist/Karaoke Grabber.app` and opens it. Then drag the app from
+`dist/` to `/Applications` and, if you like, to the Dock.
+
+The app isn't signed by an Apple developer account, so the **first**
+time you open it macOS may refuse. Right-click (or Control-click) the
+app, choose **Open**, then **Open** again. After that it opens normally.
+
+## Using it
+
+1. Paste a YouTube video link and press **Fetch** (or Return).
+2. Drag the **Trim** handles to cut the intro and outro; drag the **Fade**
+   handles in for a fade-in or fade-out.
+3. Listen with **From start**, the round play/pause button (or Space) and
+   **From end**.
+4. Optionally pick the **Key** and tidy the title with the pencil.
+5. **Save MP3…** (or ⌘S).
+
+The [User's Guide](USER_GUIDE.md) covers each step with pictures.
+
+## When downloads stop working
+
+YouTube changes things now and then, and yt-dlp catches up within days.
+If fetching or downloading starts failing with "yt-dlp may be out of
+date", update it:
+
+```bash
+brew upgrade yt-dlp
+```
+
+If it still fails, run `brew upgrade` to update everything.
+
+## Project layout
+
+```
+main.py                 Tkinter UI + workflow state machine; --self-test
+karaokegrab/
+  __main__.py           command-line version: python -m karaokegrab URL --key B-flat --start 4.5 --end 339
+  tools.py              find yt-dlp / ffmpeg / ffprobe / deno; report what's missing
+  links.py              check the pasted link: one well-formed YouTube video link
+  fetch.py              yt-dlp -J → VideoInfo (title, channel, duration, thumbnail)
+  download.py           best-audio download into the cache; progress; cancel
+  cache.py              one cache folder per video; keep the 10 most recent
+  trim.py               trim and fades → ffmpeg command lines (pure)
+  render.py             run ffmpeg for the saved MP3 and the preview WAV
+  player.py             play the preview with afplay; cut it at the cursor
+  keys.py, naming.py,   key names, the file name, time formatting (pure)
+  timecode.py
+  rangeslider.py        the two-handle Trim and Fade sliders
+  widgets.py            colour-filled and round buttons that work on macOS
+  proc.py               run one tool: streamed output, cancel
+  settings.py           last save folder + log file
+  selftest.py           check the whole engine without the window
+tests/                  pytest; every subprocess faked, no network
+assets/                 icon.svg (source) → icon.icns via make_icon.py
+docs/                   product spec, architecture, build plan, dev environment, roadmap
+build.sh / run.sh       PyInstaller build / build and open
+```
+
+Settings and the log live in `~/Library/Application Support/Karaoke Grabber/`;
+downloads are cached in `~/Library/Caches/Karaoke Grabber/`.
 
 ## Develop & test
 
 ```bash
+cd ~/Development/karaoke-grabber
 python3.14 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python main.py
 .venv/bin/python -m pytest
 ```
 
-Until the window is built (M2), the engine runs from the command line:
+- **Command line:**
+  `.venv/bin/python -m karaokegrab "<url>" --key B-flat --start 4.5 --end 339 --fade-out 2`
+  (`--help` lists everything).
+- **Self-test** (tools, a real lookup, download and save, no window). Run
+  inside the built app with an empty environment, it proves the app works
+  the way Finder starts it:
 
-```bash
-.venv/bin/python -m karaokegrab "<url>" --key B-flat --start 4.5 --end 339 --fade-out 2
-```
+  ```bash
+  env -i HOME="$HOME" "dist/Karaoke Grabber.app/Contents/MacOS/Karaoke Grabber" --self-test
+  ```
 
-`--title` overrides the YouTube title, `--fade-in` adds a fade-in, and
-`--out` picks the folder (default: the last one used). Run with `--help`
-for everything.
+- **Icon:** edit `assets/icon.svg`, then rebuild `assets/icon.icns` with
+  `python3 assets/make_icon.py` (uses the macOS `sips` and `iconutil`).
+- CI runs the tests on GitHub Actions (Linux, under Xvfb) on every push to
+  `main`.
 
 ## Docs
 
-- [Product spec](docs/product_spec.md)
-- [Architecture](docs/architecture.md)
-- [Build plan](docs/build_plan.md)
-- [Dev environment](docs/dev_environment.md)
-- [Roadmap](docs/roadmap.md)
+[Product spec](docs/product_spec.md) · [Architecture](docs/architecture.md) ·
+[Build plan](docs/build_plan.md) · [Dev environment](docs/dev_environment.md) ·
+[Roadmap](docs/roadmap.md)
 
 ## License
 

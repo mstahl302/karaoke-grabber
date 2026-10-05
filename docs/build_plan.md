@@ -1,7 +1,7 @@
 # Karaoke Grabber — Build Plan
 
-**Status:** DRAFT rev 0.1 — V1 planning
-**Date:** 2026-10-02
+**Status:** V1 done: all milestones complete, shipped as v1.0
+**Date:** 2026-10-04
 **Owner:** markstahl
 **Related:** [product_spec.md](product_spec.md) · [architecture.md](architecture.md) · [dev_environment.md](dev_environment.md) · [roadmap.md](roadmap.md)
 
@@ -224,18 +224,36 @@ states; tests and CI green.
 
 ## 8. M5 — Ship
 
-- [ ] Draw `assets/icon.svg` (product spec §7) and build `icon.icns`
-- [ ] `build.sh` and `run.sh` adapted from Music Printer; stable bundle
-      id `com.mstahl302.karaokegrabber`
-- [ ] Launch the `.app` **from Finder** (not the terminal) to prove the
-      Homebrew tools are found without your shell's PATH
-- [ ] README (structure in dev_environment.md §6) and USER_GUIDE.md
-- [ ] Install to /Applications and the Dock
-- [ ] Tag `v1.0`, push, confirm CI green
-- [ ] Mark the docs as V1 (status lines) and sync their Claude Docs
+1. **Icon (F12).** Draw `assets/icon.svg` from product spec §7 and show it
+   for approval. `assets/make_icon.py` renders it with the macOS `sips`
+   tool (transparent corners, correct gradients; PyMuPDF turns gradients
+   black and Quick Look adds a white background), sizes it with `sips` and
+   packs it with `iconutil` into `assets/icon.icns`, which is checked in.
+   No Pillow or PyMuPDF needed.
+2. **Build.** `build.sh` (PyInstaller, `--windowed`, arm64,
+   `--icon assets/icon.icns`) and `run.sh` (create the venv if missing,
+   build, open), adapted from Music Printer. Info.plist: bundle id
+   `com.mstahl302.karaokegrabber`, name "Karaoke Grabber" (so the menu bar
+   doesn't say "Python"), version 1.0. Ad-hoc signed, so the first launch
+   needs right-click ▸ Open once.
+3. **Prove the built app.** Launch it **from Finder** (not the terminal) to
+   prove the Homebrew tools are found without the shell's PATH; run the
+   full workflow; quit with ⌘Q and from the Dock; check the
+   missing-tools dialog in the built app. Ends with an interactive test.
+4. **Docs.** The full README (outline in dev_environment.md §6) with a
+   screenshot of the Defying Gravity track, and a USER_GUIDE.md written
+   for a singer: the workflow step by step with screenshots, plus "when
+   downloads stop working". Both get Claude Doc mirrors.
+5. **Install.** Copy the app to /Applications and add it to the Dock
+   (approved 2026-10-04).
+6. **Release.** Tag `v1.0`, push, confirm CI green. Mark every doc's status
+   line as V1 and sync the Claude Docs.
 
 **Exit criteria:** the app launches from the Dock on a clean login and
 completes the full workflow; `v1.0` is on GitHub.
+
+**Done 2026-10-04:** the owner confirmed the app from the Dock after a fresh
+login, and `v1.0` was tagged and pushed.
 
 ## 9. Feature traceability
 

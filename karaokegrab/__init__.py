@@ -5,4 +5,4 @@ see docs/architecture.md §3. The Tkinter UI and the workflow state machine
 live in ``main.py``.
 """
 
-__version__ = "0.0.1"
+__version__ = "1.0"

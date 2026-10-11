@@ -44,6 +44,9 @@ class Tools:
         self.hold_download = False
         self.hold_save = False
         self.hold_preview = False
+        self.hold_transpose = False
+        self.fail_transpose = False
+        self.rubberband_argvs: list[list[str]] = []
         self.cancelled_previews = 0
         self.save_argv: list[str] | None = None
         self.preview_argvs: list[list[str]] = []
@@ -51,6 +54,7 @@ class Tools:
         fake_run.on(lambda a: "--write-thumbnail" in a, self.thumb)
         fake_run.on(lambda a: "--progress-template" in a, self.download)
         fake_run.on(lambda a: a[0].endswith("ffmpeg"), self.ffmpeg)
+        fake_run.on(lambda a: a[0].endswith("rubberband"), self.rubberband)
 
     def info(self, argv, on_line, cancel):
         return result(argv, stdout=json.dumps(self.video_json))
@@ -68,7 +72,23 @@ class Tools:
         (out / "audio.webm").write_bytes(b"opus")
         return result(argv)
 
+    def rubberband(self, argv, on_line, cancel):
+        self.rubberband_argvs.append(argv)
+        Path(argv[-1]).write_bytes(b"fLaC")          # the .part.flac file
+        on_line("40%")
+        if self.hold_transpose:
+            cancel.wait(5)
+            return result(argv, returncode=-15, cancelled=True)
+        if self.fail_transpose:
+            return result(argv, returncode=1, stdout="rubberband: out of memory")
+        on_line("100%")
+        return result(argv)
+
     def ffmpeg(self, argv, on_line, cancel):
+        if Path(argv[-1]).name.startswith("transpose-"):   # decoding for rubberband
+            Path(argv[-1]).write_bytes(b"RIFF")
+            on_line("out_time_us=9500000")
+            return result(argv)
         if argv[-2] == "wav":
             hold = self.hold_preview                  # read before the test can see this call
             self.preview_argvs.append(argv)
@@ -126,7 +146,8 @@ def _fetch(app, url=URL):
 
 
 def _pick(app, key):
-    app.key_var.set(key)
+    """Choose *key* (in words, or KEY_NONE) the way the dropdown does: by its short name."""
+    app.key_var.set(main.keys.short_name(key) if key != main.KEY_NONE else key)
     app._key_changed()
 
 
@@ -147,7 +168,7 @@ def test_save_is_ready_without_a_key(fake_tools, app):
     assert app.key_var.get() == main.KEY_NONE
     assert app.save_blocker() == ""
     assert app.save_btn.cget("text") == "Save MP3…"
-    assert app.key_box.cget("values")[0] == main.KEY_NONE   # "— none —" clears a picked key
+    assert app.key_box.cget("values")[0] == main.KEY_NONE   # "none" clears a picked key
 
 
 def test_no_key_leaves_it_out_of_the_filename(fake_tools, app, save_to, tmp_path):
@@ -763,3 +784,223 @@ def test_preview_error_shows_details(fake_tools, fake_run, app):
     assert app.details_link.winfo_ismapped()
     assert "ffmpeg exploded" in app.details
     assert app.save_blocker() == ""                        # the track is still usable
+
+
+# --- transpose (F17) ----------------------------------------------------------
+
+@pytest.fixture
+def quick_transpose(monkeypatch):
+    monkeypatch.setattr(main, "TRANSPOSE_DEBOUNCE_MS", 60)
+
+
+def _transposed(app):
+    _pump(app, lambda: app.state == main.READY and app.preview_clip is not None
+          and not app.preparing)
+
+
+def _preview_source(fake_tools):
+    argv = fake_tools.preview_argvs[-1]
+    return Path(argv[argv.index("-i") + 1]).name
+
+
+def test_transpose_control_waits_for_the_download(fake_tools, app):
+    app.update()
+    assert not app.shift_up._enabled and not app.shift_down._enabled
+    app.transpose_by(1)
+    assert app.shift_wanted == 0
+    _ready(app)
+    assert app.shift_up._enabled and app.shift_down._enabled
+    assert app.shift_var.get() == "0" and app.heard_var.get() == ""
+
+
+def test_rapid_clicks_transpose_once_and_remake_the_preview(fake_tools, app, quick_transpose):
+    _ready(app)
+    _pick(app, "B-flat")
+    app.transpose_by(1)
+    app.transpose_by(1)
+    assert app.shift_var.get() == "+2" and app.heard_var.get() == "→ C"
+    assert app.state == main.TRANSPOSING
+    assert app.save_blocker() == "transposing…"
+    assert app.cancel_btn.winfo_manager() == "grid"
+    _transposed(app)
+    assert [a[1:3] for a in fake_tools.rubberband_argvs] == [["-p", "2"]]
+    assert app.shift == 2
+    assert _preview_source(fake_tools) == "shift2.flac"
+    assert app.status_var.get() == "Transposed +2 → C."
+    assert sorted(p.name for p in cache.video_dir("jNQXAC9IVRw").glob("shift*")) == ["shift2.flac"]
+
+
+def test_save_uses_the_shifted_audio_and_the_key_you_hear(fake_tools, app, save_to, quick_transpose):
+    _ready(app)
+    _pick(app, "B-flat")
+    app.transpose_by(1)
+    app.transpose_by(1)
+    _transposed(app)
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    assert save_to["initialfile"] == "Me at the zoo - AUDIO - C.mp3"
+    assert Path(fake_tools.save_argv[fake_tools.save_argv.index("-i") + 1]).name == "shift2.flac"
+
+
+def test_a_shift_without_a_key_goes_in_the_filename(fake_tools, app, save_to, quick_transpose):
+    _ready(app)
+    app.transpose_by(-1)
+    _transposed(app)
+    assert app.shift_var.get() == "−1" and app.heard_var.get() == ""
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    assert save_to["initialfile"] == "Me at the zoo - AUDIO (-1).mp3"
+
+
+def test_going_back_to_a_made_shift_is_instant(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.transpose_by(1)
+    _transposed(app)
+    app.reset_shift()
+    assert app.state == main.READY and app.shift == 0
+    _preview_ready(app)
+    assert app.status_var.get() == "Back in the original key."
+    assert _preview_source(fake_tools) == "audio.webm"
+    app.transpose_by(1)                       # shift1.flac is still cached
+    assert app.state == main.READY and app.shift == 1
+    _preview_ready(app)
+    assert len(fake_tools.rubberband_argvs) == 1
+
+
+def test_cancel_restores_the_previous_shift(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.transpose_by(1)
+    _transposed(app)
+    fake_tools.hold_transpose = True
+    app.transpose_by(1)
+    _pump(app, lambda: len(fake_tools.rubberband_argvs) == 2)
+    app.cancel()
+    assert app.state == main.READY
+    assert app.shift == 1 and app.shift_var.get() == "+1"
+    _pump(app, lambda: not app._worker.is_alive())
+    _preview_ready(app)
+    assert app.status_var.get() == "Transpose cancelled. Still +1."
+    assert _preview_source(fake_tools) == "shift1.flac"
+    names = sorted(p.name for p in cache.video_dir("jNQXAC9IVRw").iterdir())
+    assert "shift2.flac" not in names and "shift2.part.flac" not in names
+
+
+def test_a_click_during_transposing_cancels_it_and_starts_over(fake_tools, app, quick_transpose):
+    _ready(app)
+    fake_tools.hold_transpose = True
+    app.transpose_by(1)
+    _pump(app, lambda: len(fake_tools.rubberband_argvs) == 1)
+    first = app._worker
+    fake_tools.hold_transpose = False
+    app.transpose_by(1)
+    _pump(app, lambda: not first.is_alive())
+    _transposed(app)
+    assert app.shift == 2
+    assert [a[2] for a in fake_tools.rubberband_argvs] == ["1", "2"]
+
+
+def test_transpose_failure_shows_details_and_keeps_the_shift(fake_tools, app, quick_transpose):
+    _ready(app)
+    fake_tools.fail_transpose = True
+    app.transpose_by(1)
+    _pump(app, lambda: app.state == main.ERROR)
+    assert app.shift == 0 and app.shift_var.get() == "0"
+    _preview_ready(app)
+    assert app.status_var.get() == main.transpose.FAILED       # still shown after the preview
+    app.toggle_details()
+    assert "out of memory" in app.details_box.get("1.0", "end")
+
+
+def test_shift_resets_for_a_new_url(fake_tools, app, quick_transpose):
+    _ready(app)
+    _pick(app, "D")
+    app.transpose_by(1)
+    _transposed(app)
+    _fetch(app)
+    assert app.shift == 0 and app.shift_wanted == 0
+    assert app.shift_var.get() == "0" and app.heard_var.get() == ""
+
+
+def test_range_stops_at_nine(fake_tools, app, quick_transpose):
+    _ready(app)
+    for _ in range(12):
+        app.transpose_by(1)
+    assert app.shift_wanted == 9
+    assert not app.shift_up._enabled and app.shift_down._enabled
+    app.cancel()
+
+
+def test_transpose_keys_but_not_while_typing(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.focus_force()
+    app.update()
+    for keysym, wanted in (("equal", 1), ("plus", 2), ("KP_Add", 3), ("minus", 2),
+                           ("KP_Subtract", 1), ("0", 0)):
+        app.event_generate(f"<Key-{keysym}>")
+        app.update()
+        assert app.shift_wanted == wanted, keysym
+    app.url_entry.focus_force()
+    app.update()
+    app.url_entry.event_generate("<Key-minus>")
+    app.update()
+    assert app.shift_wanted == 0
+
+
+def test_a_shifted_copy_removed_from_the_cache_is_made_again(fake_tools, app, save_to,
+                                                             quick_transpose):
+    _ready(app)
+    app.transpose_by(1)
+    _transposed(app)
+    cache.shifted_audio("jNQXAC9IVRw", 1).unlink()
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    assert len(fake_tools.rubberband_argvs) == 2
+    assert save_to["initialfile"] == "Me at the zoo - AUDIO (+1).mp3"
+    assert Path(fake_tools.save_argv[fake_tools.save_argv.index("-i") + 1]).name == "shift1.flac"
+
+
+def test_dropdown_uses_short_names_but_the_file_name_keeps_words(fake_tools, app, save_to,
+                                                                 quick_transpose):
+    _ready(app)
+    values = list(app.key_box.cget("values"))
+    assert values[:4] == [main.KEY_NONE, "C", "D♭", "D"]
+    assert "C♯m" in values and "B♭m" in values
+    assert int(app.key_box.cget("width")) <= 6
+    app.key_var.set("A♭m")                  # not in the list: it's spelled G♯m
+    app._key_changed()
+    assert app._key() is None                   # not one of the 24
+    app.key_var.set("B♭m")
+    app._key_changed()
+    assert app._key() == "B-flat minor"
+    app.transpose_by(1)
+    assert app.heard_var.get() == "→ Bm"
+    _transposed(app)
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    assert save_to["initialfile"] == "Me at the zoo - AUDIO - B minor.mp3"
+
+
+def test_changing_the_shift_never_resizes_the_window(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.update_idletasks()
+    width = app.winfo_reqwidth()
+    for key in ("C", "F-sharp minor", "C-sharp minor", main.KEY_NONE):
+        _pick(app, key)
+        for _ in range(3):
+            app.transpose_by(1)
+            app.update_idletasks()
+            assert app.winfo_reqwidth() == width, (key, app.heard_var.get())
+    app.cancel()
+
+
+def test_status_names_the_shift_after_the_preview_is_ready(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.transpose_by(1)
+    _transposed(app)
+    app.transpose_by(1)                        # +2 has to be made
+    app.reset_shift()                          # back to 0 while the preview of +1 waits
+    app.transpose_by(1)                        # +1 is cached: instant
+    _preview_ready(app)
+    assert app.status_var.get() == "Transposed +1."
+    _pick(app, "B-flat")
+    assert app.status_var.get() == "Transposed +1 → B."

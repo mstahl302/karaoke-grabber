@@ -1,6 +1,6 @@
 from karaokegrab import tools
 
-ALL = {f"/opt/homebrew/bin/{n}" for n in ("yt-dlp", "ffmpeg", "ffprobe", "deno", "brew")}
+ALL = {f"/opt/homebrew/bin/{n}" for n in ("yt-dlp", "ffmpeg", "ffprobe", "deno", "rubberband", "brew")}
 
 
 def fake_fs(paths):
@@ -19,7 +19,7 @@ def test_all_found_in_homebrew_with_finder_minimal_path():
 
 def test_intel_prefix_and_path_fallback():
     fs = {"/usr/local/bin/yt-dlp", "/usr/local/bin/ffmpeg", "/usr/local/bin/ffprobe",
-          "/Users/me/bin/deno", "/usr/local/bin/brew"}
+          "/Users/me/bin/deno", "/usr/local/bin/rubberband", "/usr/local/bin/brew"}
     t = tools.locate(env_path="/usr/bin:/Users/me/bin", is_exe=fake_fs(fs))
     assert t.ok
     assert t["ffmpeg"] == "/usr/local/bin/ffmpeg"
@@ -35,16 +35,16 @@ def test_missing_tools_give_one_brew_command():
     fs = {"/opt/homebrew/bin/yt-dlp", "/opt/homebrew/bin/brew"}
     t = tools.locate(env_path="/usr/bin", is_exe=fake_fs(fs))
     assert not t.ok
-    assert t.missing == ["ffmpeg", "ffprobe", "deno"]
+    assert t.missing == ["ffmpeg", "ffprobe", "deno", "rubberband"]
     # ffprobe comes with ffmpeg, so it isn't listed twice
-    assert t.install_command() == "brew install ffmpeg deno"
-    assert "brew install ffmpeg deno" in t.problem()
+    assert t.install_command() == "brew install ffmpeg deno rubberband"
+    assert "brew install ffmpeg deno rubberband" in t.problem()
 
 
 def test_missing_homebrew_points_to_readme():
     t = tools.locate(env_path="/usr/bin", is_exe=fake_fs(set()))
     assert t.brew is None
-    assert t.install_command() == "brew install yt-dlp ffmpeg deno"
+    assert t.install_command() == "brew install yt-dlp ffmpeg deno rubberband"
     assert "README" in t.problem()
 
 

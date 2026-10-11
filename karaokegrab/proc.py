@@ -75,15 +75,17 @@ def _kill_group(p: subprocess.Popen) -> None:
 
 
 def run(argv: Sequence[str], on_line: OnLine | None = None,
-        cancel: Cancel | None = None) -> Result:
+        cancel: Cancel | None = None, merge_stderr: bool = False) -> Result:
     """Run *argv* to completion (or until *cancel* is set). Each stdout line
-    goes to *on_line* (without its newline) as it arrives."""
+    goes to *on_line* (without its newline) as it arrives. With
+    *merge_stderr*, stderr is read as part of stdout (rubberband reports its
+    progress there). A lone ``\r`` also ends a line."""
     argv = [str(a) for a in argv]
     p = subprocess.Popen(
         argv,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
         text=True,
         errors="replace",
         bufsize=1,
@@ -91,8 +93,10 @@ def run(argv: Sequence[str], on_line: OnLine | None = None,
         start_new_session=True,
     )
     err_chunks: list[str] = []
-    reader = threading.Thread(target=lambda: err_chunks.append(p.stderr.read()), daemon=True)
-    reader.start()
+    reader = None
+    if p.stderr is not None:
+        reader = threading.Thread(target=lambda: err_chunks.append(p.stderr.read()), daemon=True)
+        reader.start()
 
     cancelled = threading.Event()
     done = threading.Event()
@@ -124,7 +128,8 @@ def run(argv: Sequence[str], on_line: OnLine | None = None,
         raise
     finally:
         done.set()
-    reader.join(timeout=2)
+    if reader is not None:
+        reader.join(timeout=2)
     watcher.join(timeout=2)
     return Result(argv=argv, returncode=returncode, stdout="\n".join(out_lines),
                   stderr="".join(err_chunks), cancelled=cancelled.is_set())

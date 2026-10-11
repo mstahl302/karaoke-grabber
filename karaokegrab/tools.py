@@ -1,4 +1,4 @@
-"""Find the external tools (yt-dlp, ffmpeg, ffprobe, deno) and Homebrew.
+"""Find the external tools (yt-dlp, ffmpeg, ffprobe, deno, rubberband) and Homebrew.
 
 An app launched from Finder doesn't inherit the shell's PATH, so
 /opt/homebrew/bin isn't on it. We search the Homebrew prefixes explicitly,
@@ -16,7 +16,7 @@ from typing import Callable
 # Apple Silicon prefix first, then Intel.
 SEARCH_DIRS: tuple[str, ...] = ("/opt/homebrew/bin", "/usr/local/bin")
 
-TOOLS: tuple[str, ...] = ("yt-dlp", "ffmpeg", "ffprobe", "deno")
+TOOLS: tuple[str, ...] = ("yt-dlp", "ffmpeg", "ffprobe", "deno", "rubberband")
 
 # Homebrew formula that provides each tool (ffprobe ships with ffmpeg).
 FORMULA: dict[str, str] = {
@@ -24,6 +24,7 @@ FORMULA: dict[str, str] = {
     "ffmpeg": "ffmpeg",
     "ffprobe": "ffmpeg",
     "deno": "deno",
+    "rubberband": "rubberband",
 }
 
 IsExe = Callable[[str], bool]
@@ -71,7 +72,7 @@ class Toolset:
 
     def install_command(self) -> str:
         """The one command that installs everything missing, e.g.
-        ``brew install yt-dlp ffmpeg deno``; empty when nothing is missing."""
+        ``brew install yt-dlp ffmpeg deno rubberband``; empty when nothing is missing."""
         formulas: list[str] = []
         for name in self.missing:
             f = FORMULA[name]

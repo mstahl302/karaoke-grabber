@@ -47,7 +47,13 @@ def fake_tools(fake_run, video_json):
     fake_run.on(lambda a: "-J" in a, ytdlp_json)
     fake_run.on(lambda a: "--write-thumbnail" in a, ytdlp_thumb)
     fake_run.on(lambda a: "--progress-template" in a, ytdlp_download)
+    def rubberband(argv, on_line, cancel):
+        on_line("50%")
+        Path(argv[-1]).write_bytes(b"fLaC")
+        return result(argv)
+
     fake_run.on(lambda a: a[0].endswith("ffmpeg"), ffmpeg)
+    fake_run.on(lambda a: a[0].endswith("rubberband"), rubberband)
     return fake_run
 
 
@@ -142,3 +148,31 @@ def test_bad_key_is_a_usage_error(capsys):
 def test_cancel_reports_cancelled(monkeypatch):
     code = cli.main([URL, "--key", "C"], stream=io.StringIO(), runner=lambda a, o, c: None)
     assert code == cli.EXIT_CANCELLED
+
+
+def test_transpose_renders_from_the_shifted_copy(all_tools, fake_tools, tmp_path):
+    code, text = _main(URL, "--key", "B-flat", "--transpose", "2", "--title", "Zoo Song",
+                       "--out", str(tmp_path))
+    assert code == cli.EXIT_OK, text
+    assert (tmp_path / "Zoo Song - AUDIO - C.mp3").exists()      # the key you'll hear
+    assert "Transpose: +2 → C" in text
+    assert "Transposing +2" in text
+    rb = [c for c in fake_tools.calls if c[0].endswith("rubberband")]
+    assert len(rb) == 1 and rb[0][1:3] == ["-p", "2"]
+    shifted = cache.shifted_audio("jNQXAC9IVRw", 2)
+    assert shifted.exists()
+    save = fake_tools.calls[-1]
+    assert save[save.index("-i") + 1] == str(shifted)
+
+    # the shifted copy is reused next time
+    fake_tools.calls.clear()
+    assert _main(URL, "--transpose", "2", "--out", str(tmp_path))[0] == cli.EXIT_OK
+    assert not any(c[0].endswith("rubberband") for c in fake_tools.calls)
+    assert (tmp_path / "Me at the zoo - AUDIO (+2).mp3").exists()
+
+
+@pytest.mark.parametrize("value", ["10", "-10", "1.5", "up"])
+def test_transpose_out_of_range_is_a_usage_error(capsys, value):
+    with pytest.raises(SystemExit) as e:
+        cli.main([URL, "--transpose", value])
+    assert e.value.code == 2

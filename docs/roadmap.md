@@ -1,45 +1,53 @@
 # Karaoke Grabber — Roadmap & Feature Requests
 
-**Status:** BACKLOG. Nothing here is in V1. Scope for V1 is defined in
-[product_spec.md](product_spec.md).
-**Date:** 2026-10-04
+**Status:** BACKLOG. Nothing here is planned into a milestone yet; the
+current product is defined in [product_spec.md](product_spec.md).
+**Date:** 2026-10-06
 **Owner:** markstahl
 
-Work after V1 falls into two groups:
+Work not yet in the product falls into two groups:
 
-- **Roadmap.** Planned. Fairly sure these will happen once V1 ships.
+- **Roadmap.** Planned. Fairly sure these will happen.
   They're listed in rough priority order, which can differ from the
   numeric order of the IDs.
 - **Feature requests.** Ideas worth considering, not committed.
 
 IDs are stable: **R#** for Roadmap and **FR#** for Feature requests. An
 item keeps its ID if it moves between groups. When an item is picked up,
-it gets its own spec file in `docs/`.
+it becomes part of the product spec and architecture, gets a milestone in
+the build plan, and is removed from here (R2 Transpose is now F17,
+milestone M6).
 
 ---
 
 ## Roadmap
 
-### R2. Transpose (key change)
+### R3. Keep the Homebrew tools up to date
 
-*(Highest priority: planned first after V1.)*
+*(Highest priority: planned next.)*
 
-- The **Key dropdown is the governing key**: the song's original key, as
-  in V1.
-- A **± semitone** control (e.g. `−2 … +2`, default 0) shifts the track
-  without changing the tempo, using ffmpeg's `rubberband` filter
-  (Homebrew's plain `ffmpeg` doesn't include it, but `ffmpeg-full` does).
-  The preview plays the transposed audio.
-- The UI shows the **effective key** next to the control, e.g. "B-flat
-  +2 → C". The effective key is what goes into the prefilled filename:
-  `Song Title - AUDIO - C.mp3`. Minor keys stay minor, and names use the
-  same spellings as the Key dropdown.
+Karaoke Grabber relies on four Homebrew tools: **yt-dlp**, **ffmpeg**,
+**deno** and **rubberband**. R3 keeps all of them current without you
+thinking about it.
 
-*Question:* a range limit (±6)?
+- **On startup**, in the background, check Homebrew for newer versions
+  (`brew outdated --json=v2 yt-dlp ffmpeg deno rubberband`). Anything
+  outdated is upgraded with `brew upgrade` automatically. A status line
+  shows "Updating yt-dlp…", and Fetch waits while yt-dlp is being
+  upgraded, since that's the one that matters for downloads. ffmpeg
+  upgrades can take a few minutes because Homebrew may pull in many
+  dependencies, so they run without blocking anything.
+- **When a download fails**, immediately check whether yt-dlp is outdated.
+  - If it is: upgrade it and retry the download once.
+  - If it isn't: show a warning (with the tool output under Details) and
+    fail.
+- Homebrew's public JSON API (`formulae.brew.sh/api/formula/<name>.json`)
+  can be used as a fast "latest version" lookup without running
+  `brew update` first.
 
 ### R8. Precise trim values
 
-*(High priority: planned right after R2. The IDs are stable, so this sits out of numeric order.)*
+*(High priority: planned right after R3.)*
 
 V1 trims and fades with sliders and shows their values as read-only
 seconds. R8 ties each slider handle (trim and fade) to an **editable**
@@ -53,14 +61,14 @@ values are clamped to their slider's range, and End must stay after Start.
 *(High priority: planned after R8, ahead of R1.)*
 
 Besides a YouTube link, open an audio file you already have, just to trim,
-fade and save it.
+fade, transpose and save it.
 
 - An **Open file…** button next to Fetch (and ⌘O) picks a local file:
   MP3, M4A/AAC, WAV, AIFF, FLAC, Opus and anything else ffmpeg reads.
 - The info card shows the file name and duration (from `ffprobe`). The
   song title is prefilled from the file's title tag, or from its name
   without the extension. There's no thumbnail or channel.
-- Trim, fades, preview, key and Save work exactly as for a YouTube track.
+- Trim, fades, transpose, preview, key and Save work exactly as for a YouTube track.
   The original file is never changed: Save always writes a new MP3, and
   the Save dialog starts in the original file's folder.
 - Nothing is downloaded or copied into the cache; ffmpeg reads the file
@@ -128,26 +136,7 @@ OAuth, no Cloud project and no token expiry, and it works offline
   dialog in your Drive folder. That's about an hour of work instead of
   several days.
 
-### R3. Keep yt-dlp and ffmpeg up to date
-
-- **On startup**, in the background, check Homebrew for newer versions
-  of **yt-dlp** and **ffmpeg** (`brew outdated --json=v2 yt-dlp ffmpeg`).
-  If either is outdated, run `brew upgrade` on it automatically. A status
-  line shows "Updating yt-dlp…", and Fetch waits while yt-dlp is being
-  upgraded. ffmpeg upgrades can take a few minutes because Homebrew may
-  pull in many dependencies, so they run without blocking anything.
-- **When a download fails**, immediately check whether yt-dlp is outdated.
-  - If it is: upgrade it and retry the download once.
-  - If it isn't: show a warning (with the tool output under Details) and
-    fail.
-- Homebrew's public JSON API (`formulae.brew.sh/api/formula/<name>.json`)
-  can be used as a fast "latest version" lookup without running
-  `brew update` first.
-
 ### R7. Song title from the video
-
-*(Planned right after R3. The IDs are stable, so this sits out of
-numeric order.)*
 
 V1 prefills the editable song title with the raw YouTube title. R7 cleans it up automatically:
 

@@ -54,3 +54,16 @@ def test_cancel_kills_the_whole_process_group(tmp_path):
 def test_subprocess_gets_homebrew_on_path():
     r = proc.run([sys.executable, "-c", "import os; print(os.environ['PATH'])"])
     assert r.stdout.split(":")[0] == "/opt/homebrew/bin"
+
+
+def test_merge_stderr_streams_carriage_return_progress():
+    # rubberband writes "12%\r" to stderr; each update must arrive as a line.
+    code = ("import sys, time\n"
+            "for p in (10, 50, 99):\n"
+            "    sys.stderr.write(f'{p}%\\r'); sys.stderr.flush()\n"
+            "print('done')")
+    seen = []
+    r = proc.run([sys.executable, "-c", code], on_line=seen.append, merge_stderr=True)
+    assert r.ok
+    assert seen == ["10%", "50%", "99%", "done"]
+    assert r.stderr == ""

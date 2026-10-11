@@ -1,7 +1,7 @@
 # Karaoke Grabber — Dev Environment
 
-**Status:** V1.
-**Date:** 2026-10-04
+**Status:** v1.1 shipped 2026-10-11 (adds rubberband for transposing).
+**Date:** 2026-10-11
 **Related:** [product_spec.md](product_spec.md) · [architecture.md](architecture.md) · [build_plan.md](build_plan.md) · [roadmap.md](roadmap.md)
 
 This plan covers setting up the development machine, the project
@@ -26,14 +26,15 @@ type any commands.
 ## 2. External tools (Homebrew)
 
 ```bash
-brew install yt-dlp ffmpeg deno
+brew install yt-dlp ffmpeg deno rubberband
 ```
 
 | Tool | Why |
 |------|-----|
 | **yt-dlp** | Downloads the audio stream from YouTube. |
-| **ffmpeg** (+ `ffprobe`) | Encodes MP3, trims, applies fades, makes preview clips and reads durations. Homebrew's build includes `libmp3lame` (MP3). It doesn't include `librubberband`, which the later transpose feature (R2) needs; Homebrew's `ffmpeg-full` does. |
+| **ffmpeg** (+ `ffprobe`) | Encodes MP3, trims, applies fades, makes preview clips and reads durations. Homebrew's build includes `libmp3lame` (MP3). |
 | **deno** | Since late 2025, yt-dlp needs a JavaScript runtime to solve YouTube's player challenges. Without one, many videos fail or only offer low-quality formats. Deno is the runtime yt-dlp recommends. (If `brew install yt-dlp` already installs it as a dependency, this step changes nothing.) |
+| **rubberband** | Shifts the pitch for Transpose (F17) without changing the tempo. Plain `ffmpeg` doesn't include the rubberband library (only the much larger `ffmpeg-full` does), so the app runs the small `rubberband` command-line tool instead. |
 
 Previews play through `afplay`, which ships with macOS, so nothing extra
 is needed for playback.
@@ -175,7 +176,7 @@ and follows Music Printer's structure:
 
 1. **What it is.** One paragraph and a screenshot of the app.
 2. **Requirements.** macOS on Apple Silicon, Homebrew,
-   `brew install yt-dlp ffmpeg deno`, and Python 3.14 from python.org
+   `brew install yt-dlp ffmpeg deno rubberband`, and Python 3.14 from python.org
    (with the reason why). Includes how to install Homebrew itself, which
    the app's prerequisite check points to.
 3. **Install / build.** Clone, `./run.sh`, then drag the app to

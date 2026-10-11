@@ -1,20 +1,21 @@
 # Karaoke Grabber — Build Plan
 
-**Status:** V1 done: all milestones complete, shipped as v1.0
-**Date:** 2026-10-04
+**Status:** v1.1 shipped 2026-10-11 (M0–M6). v1.0 shipped 2026-10-04 (M0–M5).
+**Date:** 2026-10-11
 **Owner:** markstahl
 **Related:** [product_spec.md](product_spec.md) · [architecture.md](architecture.md) · [dev_environment.md](dev_environment.md) · [roadmap.md](roadmap.md)
 
-This is the working plan for building V1: the milestones, the steps in
-each one, and how we know each one is done. What the app does is in the
-product spec; how it's built is in the architecture doc. Work after V1 is
+This is the working plan: the milestones, the steps in each one, and how
+we know each one is done. M0–M5 built v1.0; later milestones are appended
+as features come off the roadmap. What the app does is in the product
+spec; how it's built is in the architecture doc. Work not yet planned is
 in the roadmap.
 
 ---
 
 ## 1. How we work
 
-- **Milestones in order, M0 → M5.** Each one ends with something you can
+- **Milestones in order, M0 → M6.** Each one ends with something you can
   run and with the test suite green, locally and in CI.
 - **Git: one local branch per milestone.** Work happens on a local
   branch (e.g. `m1-core-engine`), with as many commits as are useful. When
@@ -41,6 +42,7 @@ in the roadmap.
 | M3 | Trim, fade + preview | Both sliders, playback cursor, preview buttons | F4, F5, F6 | L |
 | M4 | Polish | Shortcuts, Finder reveal, prerequisite check, error details, cache, robustness | F11, F13, F16 | M |
 | M5 | Ship | Icon, `.app`, README, user guide, `v1.0` on GitHub | F12, F14 | M |
+| M6 | Transpose (v1.1) | Shift a track by semitones, effective key in the name, `v1.1` | F17; F3, F5, F8, F10, F16 | L |
 
 Size is a rough relative effort: S (an hour or two), M (half a day),
 L (a day or more).
@@ -255,29 +257,86 @@ completes the full workflow; `v1.0` is on GitHub.
 **Done 2026-10-04:** the owner confirmed the app from the Dock after a fresh
 login, and `v1.0` was tagged and pushed.
 
-## 9. Feature traceability
+## 9. M6 — Transpose (v1.1)
 
-Every V1 feature in the product spec, and the milestone that delivers it.
+**Goal:** shift a track up or down by semitones without changing its
+tempo, hear it in the preview, and save it named with the key you'll hear
+(product spec F17; architecture §5.3). Released as `v1.1`.
+
+1. **Setup and a quick trial.** `brew install rubberband`. Time
+   `rubberband -p 2` on the Defying Gravity track with its default engine
+   and with `--fine` (the newer, slower engine), listen to both, and pick
+   one. Confirm it writes FLAC, how it reports progress, and that the
+   length is unchanged to the sample.
+2. **`keys.py`:** `effective_key(key, n)`, n steps along the chromatic
+   list, wrapping; minor stays minor. Tests: every key at every shift from
+   −9 to +9, plus the spec's examples (B-flat +2 → C).
+3. **`naming.py`:** `(title, key, shift)` → `… - AUDIO - <effective key>.mp3`,
+   `… - AUDIO.mp3`, or `… - AUDIO (+2).mp3` / `(−2)`. Tests.
+4. **`tools.py`:** rubberband in the tool list; the install command and the
+   missing-tools dialog include it. Tests.
+5. **`transpose.py`:** the decode argv (ffmpeg → 48 kHz stereo WAV in the
+   temp folder) and the rubberband argv; a progress parser; `transpose()`
+   running both with cancel, writing `cache/<id>/shift<n>.flac` via a
+   `.part` file and keeping only the latest shift. Tests with fake
+   processes: argv, progress, cancel cleanup, reuse of the cached shift.
+6. **Rendering from the source:** the preview and save render from the
+   downloaded audio or the shifted copy. CLI `--transpose N`.
+   `--self-test` also transposes. Tests.
+7. **UI (F17):** in the Key row, **−**, the shift, **+** and the
+   resulting key (e.g. "+2 → C", or "+2" with no key). A new *Transposing*
+   state: clicks wait until − / + have been still for 400 ms, a running
+   transposition is cancelled, progress reads "Transposing +2… n%", Cancel
+   restores the previous shift, then the preview is remade. Disabled until
+   the download is in and while busy; resets to 0 for a new URL. The Save
+   name uses the effective key. Keys: = / + / keypad + up, − / keypad −
+   down, 0 resets; ignored while typing in a text field.
+   After the first interactive test: a narrow Key dropdown with short
+   names (B♭, C♯m; the filename keeps the words), the Key and Transpose
+   row centred across the bottom of the card with fixed widths so the
+   window never resizes, and a drawn pencil button (tip down to the left).
+8. **Flow tests:** shift changes transpose once and remake the preview;
+   rapid clicks make one transposition; Cancel restores the shift; the
+   filename uses the effective key; the shift resets on a new URL; a
+   transposition failure shows Details and keeps the previous shift; the
+   keys transpose but not while typing in the link box.
+9. **Docs and mockup:** the README (requirements, usage) and the User's
+   Guide (a "Transpose" section with a screenshot), dev_environment.md's
+   install command, and their Claude Docs. The product spec, architecture
+   and mockup are updated before building starts.
+10. **Ship v1.1:** version 1.1; build the app; `--self-test` in the built
+    app with `env -i`; reinstall it in /Applications; interactive test;
+    tag `v1.1` and push.
+
+**Exit criteria:** a B-flat track raised 2 semitones previews in C at the
+same tempo and saves as `<Song Title> - AUDIO - C.mp3`; changing the
+shift, Cancel and a new URL behave as specified; tests and CI green;
+`v1.1` is on GitHub.
+
+## 10. Feature traceability
+
+Every feature in the product spec, and the milestone that delivers it.
 
 | Feature | Milestone |
 |---------|-----------|
 | F1 Fetch from URL | M1 (engine), M2 (UI) |
 | F2 Audio only, MP3 out | M1 |
-| F3 Download once, trim many | M1 |
+| F3 Download once, trim many | M1; M6 (also across shifts) |
 | F4 Trim | M1 (engine), M3 (UI) |
-| F5 Preview by ear | M3 |
+| F5 Preview by ear | M3, M4; M6 (transposed preview) |
 | F6 Fades | M1 (engine), M3 (UI) |
-| F7 Optional Key dropdown | M2 |
-| F8 Prefilled filename | M1 (naming), M2 (dialog) |
+| F7 Key dropdown (the original key) | M2 |
+| F8 Prefilled filename | M1 (naming), M2 (dialog); M6 (effective key) |
 | F9 Save to local disk | M2 |
-| F10 Progress & Cancel | M2 |
+| F10 Progress & Cancel | M2, M4; M6 (transposing) |
 | F11 Plain-English errors | M2, M4 |
 | F12 Mac app with icon | M5 |
 | F13 Small conveniences | M4 |
 | F14 Published on GitHub | M0 (repo), M5 (release) |
 | F15 Editable song title | M2 |
-| F16 Prerequisite check | M1 (`tools.py`), M4 (dialog) |
+| F16 Prerequisite check | M1 (`tools.py`), M4 (dialog); M6 (rubberband) |
+| F17 Transpose | M6 |
 
-## 10. Open questions
+## 11. Open questions
 
 None right now.

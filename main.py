@@ -3,8 +3,8 @@
 
 Paste a YouTube link, Fetch, check the info card, tidy the song title,
 trim and fade with the two sliders, listen with the preview buttons, pick
-the key, Save. See docs/product_spec.md §4–§6 and docs/architecture.md §4
-and §5.3.
+the key and transpose, Save. See docs/product_spec.md §4–§6 and
+docs/architecture.md §4, §5.3 and §5.4.
 
 Work runs on one background worker at a time. Workers never touch
 widgets: they put messages on ``self._q``, which ``_pump`` drains on the
@@ -27,14 +27,14 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from karaokegrab import (cache, download, fetch, keys, naming, proc, render,
-                         settings, timecode, tools, trim)
+                         settings, timecode, tools, transpose, trim)
 from karaokegrab.player import Player, slice_wav
 from karaokegrab.rangeslider import RangeSlider
 from karaokegrab.trim import TrimSpec
-from karaokegrab.widgets import HAND, MAGENTA, PURPLE, Button, RoundButton
+from karaokegrab.widgets import HAND, MAGENTA, PURPLE, Button, PencilButton, RoundButton
 
 APP_NAME = "Karaoke Grabber"
-KEY_NONE = "— none —"          # optional: no key leaves it out of the file name
+KEY_NONE = "none"              # optional: no key leaves it out of the file name
 THUMB_W, THUMB_H = 160, 90
 PUMP_MS = 50
 
@@ -45,6 +45,7 @@ STEP_DOWNLOAD = (0.10, 0.95)     # the download's own progress is spread over th
 STEP_FINISH = 0.98
 TICK_MS = 50          # playback cursor refresh
 PREVIEW_DEBOUNCE_MS = 250   # wait for a dragged slider to settle before rendering
+TRANSPOSE_DEBOUNCE_MS = 400  # wait for − / + clicks to stop before transposing
 
 # --- states (docs/architecture.md §4) ---
 IDLE = "idle"
@@ -53,9 +54,13 @@ DOWNLOADING = "downloading"
 READY = "ready"
 SAVING = "saving"
 SAVED = "saved"
+TRANSPOSING = "transposing"
 ERROR = "error"
 CANCELLED = "cancelled"
-BUSY = (FETCHING, DOWNLOADING, SAVING)
+BUSY = (FETCHING, DOWNLOADING, SAVING, TRANSPOSING)
+# Modifier bits that make a key press a shortcut for something else: Control,
+# Command (Mod1) and, on the Mac, Option (Mod2). ⌘+ / ⌘− stay zoom keys.
+SHORTCUT_MODS = 0x4 | 0x8 | (0x10 if sys.platform == "darwin" else 0)
 TEXT_CLASSES = ("TEntry", "Entry", "TCombobox", "Text")
 
 CARD_BG = "#f6f2f9"
@@ -243,10 +248,19 @@ class App(tk.Tk):
         self._prep_status_saved = False
         self._ticking = False
 
+        # Transpose (F17). shift is what the source audio is shifted by now;
+        # shift_wanted is what the control shows, ahead of it while transposing.
+        self.shift = 0
+        self.shift_wanted = 0
+        self._transpose_token = 0
+        self._transpose_after: str | None = None
+
         self.url_var = tk.StringVar()
         self.title_var = tk.StringVar()
         self.meta_var = tk.StringVar()
         self.key_var = tk.StringVar(value=KEY_NONE)
+        self.shift_var = tk.StringVar(value="0")
+        self.heard_var = tk.StringVar()
         self.status_var = tk.StringVar()
         self.fetch_error_var = tk.StringVar()
         self.trim_note = tk.StringVar()
@@ -286,9 +300,15 @@ class App(tk.Tk):
         self._after(PUMP_MS, self._pump)
 
     def _bind_shortcuts(self) -> None:
-        """F13: Space starts/stops the preview, ⌘S saves (Return = Fetch is on
-        the URL box). ⌘Q is tk::mac::Quit."""
+        """F13: Space starts/stops the preview, = / + and − transpose, 0
+        resets the transposition, ⌘S saves (Return = Fetch is on the URL
+        box). ⌘Q is tk::mac::Quit."""
         self.bind("<space>", self._space_key)
+        for seq, step in (("<equal>", 1), ("<plus>", 1), ("<KP_Add>", 1),
+                          ("<minus>", -1), ("<KP_Subtract>", -1)):
+            self.bind(seq, lambda e, s=step: self._transpose_key(e, lambda: self.transpose_by(s)))
+        for seq in ("<Key-0>", "<KP_0>"):
+            self.bind(seq, lambda e: self._transpose_key(e, self.reset_shift))
         mod = "Command" if sys.platform == "darwin" else "Control"
         self.bind(f"<{mod}-s>", lambda _e: (self.save(), "break")[1])
         # A click outside a text field takes keyboard focus out of it, so Space
@@ -309,6 +329,18 @@ class App(tk.Tk):
         if cls in TEXT_CLASSES:
             return None                                # typing a space
         self.toggle_play()
+        return "break"
+
+    def _transpose_key(self, e, action) -> str | None:
+        """The plain-key transpose shortcuts; typing in a text field wins.
+        (A read-only dropdown takes no typing, so the keys work there too.)"""
+        w = e.widget
+        cls = w.winfo_class() if hasattr(w, "winfo_class") else ""
+        if cls in TEXT_CLASSES and not (cls == "TCombobox" and str(w.cget("state")) == "readonly"):
+            return None
+        if (getattr(e, "state", 0) or 0) & SHORTCUT_MODS:
+            return None
+        action()
         return "break"
 
     def show_prereq_dialog(self) -> None:
@@ -436,7 +468,7 @@ class App(tk.Tk):
         self.thumb = tk.Label(card, bg="#4b3a6b", fg="white", text="♪", font=self.f_title,
                               width=THUMB_W, height=THUMB_H, compound="center",
                               image=self._blank_image())
-        self.thumb.grid(row=0, column=0, rowspan=4, padx=14, pady=14, sticky="nw")
+        self.thumb.grid(row=0, column=0, rowspan=3, padx=14, pady=(14, 8), sticky="nw")
 
         tk.Label(card, text="SONG TITLE · from YouTube, editable", font=self.f_small,
                  fg=MUTED, bg=CARD_BG).grid(row=0, column=1, sticky="sw", pady=(14, 0))
@@ -446,20 +478,35 @@ class App(tk.Tk):
         self.title_label = tk.Label(trow, textvariable=self.title_var, font=self.f_title,
                                     bg=CARD_BG, anchor="w", justify="left", wraplength=380)
         self.title_label.grid(row=0, column=0, sticky="w")
-        self.pencil = Button(trow, "✎", PURPLE, self.edit_title)
-        self.pencil.configure(padx=8, pady=2)
-        self.pencil.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        self.pencil = PencilButton(trow, PURPLE, self.edit_title, size=30)
+        self.pencil.grid(row=0, column=1, sticky="nw", padx=(8, 0), pady=(2, 0))
         tk.Label(card, textvariable=self.meta_var, fg=MUTED, bg=CARD_BG).grid(
             row=2, column=1, sticky="w")
 
+        # Key and Transpose: one row centred across the bottom of the card. Every
+        # piece has a fixed width, so changing the shift never resizes the window.
         krow = tk.Frame(card, bg=CARD_BG)
-        krow.grid(row=3, column=1, sticky="w", pady=(6, 14))
+        krow.grid(row=3, column=0, columnspan=2, pady=(4, 14))
         tk.Label(krow, text="♫ Key", font=self.f_head, bg=CARD_BG).grid(row=0, column=0, padx=(0, 8))
         self.key_box = ttk.Combobox(krow, textvariable=self.key_var,
-                                    values=[KEY_NONE, *keys.KEYS],
-                                    state="disabled", width=16, height=25)
+                                    values=[KEY_NONE, *keys.SHORT],
+                                    state="disabled", width=5, height=25)
         self.key_box.grid(row=0, column=1)
         self.key_box.bind("<<ComboboxSelected>>", lambda _e: self._key_changed())
+        # Transpose (F17): − shift + and the key you'll hear
+        tk.Label(krow, text="Transpose", font=self.f_head, bg=CARD_BG).grid(
+            row=0, column=2, padx=(18, 8))
+        self.shift_down = Button(krow, "−", PURPLE, lambda: self.transpose_by(-1))
+        self.shift_up = Button(krow, "+", PURPLE, lambda: self.transpose_by(1))
+        for btn in (self.shift_down, self.shift_up):
+            btn.configure(padx=9, pady=1)
+        self.shift_down.grid(row=0, column=3)
+        tk.Label(krow, textvariable=self.shift_var, font=self.f_head, bg=CARD_BG,
+                 width=3).grid(row=0, column=4)
+        self.shift_up.grid(row=0, column=5)
+        # wide enough for the longest key you can hear ("→ C♯m")
+        tk.Label(krow, textvariable=self.heard_var, font=self.f_head, bg=CARD_BG,
+                 fg=PURPLE, width=6, anchor="w").grid(row=0, column=6, padx=(8, 0))
 
         # Trim (F4): the whole track
         self._section(root, 2, "Trim", self.trim_note)
@@ -575,7 +622,9 @@ class App(tk.Tk):
         self.status_var.set(message)
 
     def _key(self) -> str | None:
-        return keys.lookup(self.key_var.get())
+        """The original key, in words (the dropdown shows short names)."""
+        text = self.key_var.get()
+        return keys.from_short(text) or keys.lookup(text)
 
     def save_blocker(self) -> str:
         """Why Save is disabled, or '' when it's enabled."""
@@ -583,6 +632,8 @@ class App(tk.Tk):
             return "downloading…"
         if self.state == SAVING:
             return "saving…"
+        if self.state == TRANSPOSING:
+            return "transposing…"
         if self.audio is None or self.info is None:
             return "fetch a video first"
         return ""
@@ -592,8 +643,19 @@ class App(tk.Tk):
         self.save_btn.set_enabled(not why)
         self.save_btn.configure(text="Save MP3…" + (f"   · {why}" if why else ""))
 
+    def _say(self, text: str) -> None:
+        """Set the status line. While a preview is being prepared, it's also
+        what comes back when the preview is ready."""
+        self.status_var.set(text)
+        if self._prep_status_saved:
+            self._status_before_preview = text
+
     def _key_changed(self) -> None:
         self.key_box.selection_clear()
+        self._show_shift()
+        shown = self._status_before_preview if self._prep_status_saved else self.status_var.get()
+        if shown.startswith("Transposed "):          # it names the key you hear
+            self._say(self._shift_status())
         self._refresh_save()
 
     def set_title(self, text: str) -> None:
@@ -605,6 +667,9 @@ class App(tk.Tk):
         self.title_var.set("")
         self.meta_var.set("")
         self.key_var.set(KEY_NONE)
+        self._stop_transpose()
+        self.shift = self.shift_wanted = 0
+        self._show_shift()
         self._thumb_img = None
         self.thumb.configure(image=self._blank, text="♪")
         self.progress.configure(value=0)
@@ -648,12 +713,12 @@ class App(tk.Tk):
         if self.save_blocker():
             return
         assert self.info is not None and self.audio is not None
-        if not self._ensure_audio(self.save):
+        if not self._ensure_source(self.save):
             return
         key = self._key()
         folder = self.cfg.get("last_save_folder") or str(Path.home() / "Music")
         path = self._ask_save_path(folder if Path(folder).is_dir() else str(Path.home()),
-                                   naming.filename(self.title_var.get(), key))
+                                   naming.filename(self.title_var.get(), key, self.shift))
         if not path:
             # Save dialog cancelled: replace any earlier "Saved …" message.
             self.status_var.set("Not saved.")
@@ -670,7 +735,7 @@ class App(tk.Tk):
         self._saving_part = render.part_path(out)
         self._set_state(SAVING)
         self._step(0.0, "Saving…")
-        self._start_worker(self._save_worker, self.tools["ffmpeg"], self.audio, spec, out)
+        self._start_worker(self._save_worker, self.tools["ffmpeg"], self._source(), spec, out)
 
     def _ask_save_path(self, folder: str, name: str) -> str:
         """The native Save dialog as its own window, not a sheet. Given the
@@ -689,6 +754,9 @@ class App(tk.Tk):
             holder.destroy()
 
     def cancel(self) -> None:
+        if self.state == TRANSPOSING:
+            self._cancel_transpose()
+            return
         if self.state in BUSY and self._cancel is not None:
             self._cancel.set()
             self.status_var.set("Cancelling…")
@@ -715,6 +783,123 @@ class App(tk.Tk):
                            self.tools)
         return False
 
+    def _ensure_source(self, then) -> bool:
+        """True if the audio to render from is on disk: the download, or its
+        transposed copy. A missing copy is made again, then *then* runs."""
+        if not self._ensure_audio(then):
+            return False
+        if self.shift == 0 or self._shifted_path(self.shift).exists():
+            return True
+        n, self.shift = self.shift, 0          # only the download is left
+        self._pending = then
+        self._want_shift(n, delay=0)
+        return False
+
+    # ------------------------------------------------------------ transpose (F17)
+    def _source(self) -> Path:
+        """The audio previews and saves render from."""
+        assert self.audio is not None
+        return self.audio if self.shift == 0 else self._shifted_path(self.shift)
+
+    def _shifted_path(self, n: int) -> Path:
+        assert self.info is not None
+        return cache.shifted_audio(self.info.id, n)
+
+    def _can_transpose(self) -> bool:
+        return (self.audio is not None and self.info is not None
+                and self.state not in (IDLE, FETCHING, DOWNLOADING, SAVING, CANCELLED))
+
+    def _show_shift(self) -> None:
+        """'+2' in the control, and '→ C' beside it when a key is picked."""
+        n = self.shift_wanted
+        self.shift_var.set(keys.shift_label(n))
+        key = self._key()
+        self.heard_var.set(f"→ {keys.short_name(keys.effective_key(key, n))}" if key and n else "")
+        self._refresh_editing()
+
+    def _shift_status(self) -> str:
+        n = self.shift
+        if n == 0:
+            return "Back in the original key."
+        key = self._key()
+        heard = f" → {keys.short_name(keys.effective_key(key, n))}" if key else ""
+        return f"Transposed {keys.shift_label(n)}{heard}."
+
+    def transpose_by(self, step: int) -> None:
+        """The − / + buttons and keys."""
+        if not self._can_transpose():
+            return
+        n = max(-keys.MAX_SHIFT, min(keys.MAX_SHIFT, self.shift_wanted + step))
+        if n != self.shift_wanted:
+            self._want_shift(n)
+
+    def reset_shift(self) -> None:
+        """The 0 key: back to the original key."""
+        if self._can_transpose() and self.shift_wanted != 0:
+            self._want_shift(0)
+
+    def _want_shift(self, n: int, delay: int | None = None) -> None:
+        """Show shift *n* at once; make its audio once the clicks have stopped
+        for *delay* ms. A transposition already running is cancelled. A shift
+        that needs no work (0, or the copy already made) applies straight away."""
+        self.shift_wanted = n
+        self._show_shift()
+        self._stop_transpose()
+        if n == 0 or self._shifted_path(n).exists():
+            changed = n != self.shift or self.state == TRANSPOSING
+            self.shift = n
+            if changed:
+                self.progress.configure(value=0)
+                self._say(self._shift_status())
+                self._set_state(READY)
+                self._schedule_preview()
+            if self._pending is not None:
+                action, self._pending = self._pending, None
+                self._after(0, action)
+            return
+        self._drop_preview()
+        if self.state != TRANSPOSING:
+            self._set_state(TRANSPOSING)
+        self._step(0.0, f"Transposing {keys.shift_label(n)}…")
+        self._transpose_after = self._after(TRANSPOSE_DEBOUNCE_MS if delay is None else delay,
+                                            self._start_transpose)
+
+    def _stop_transpose(self) -> None:
+        """Forget a pending or running transposition (its messages go stale)."""
+        self._transpose_token += 1
+        if self._transpose_after is not None:
+            try:
+                self.after_cancel(self._transpose_after)
+            except tk.TclError:
+                pass
+            self._afters.discard(self._transpose_after)
+            self._transpose_after = None
+        if self.state == TRANSPOSING and self._cancel is not None:
+            self._cancel.set()
+
+    def _start_transpose(self) -> None:
+        self._transpose_after = None
+        if self.state != TRANSPOSING or self.info is None or self.audio is None:
+            return
+        n = self.shift_wanted
+        self._transpose_token += 1
+        self._start_worker(self._transpose_worker, self._transpose_token, self.tools["ffmpeg"],
+                           self.tools["rubberband"], self.audio, n, self._shifted_path(n),
+                           self.info.duration)
+
+    def _cancel_transpose(self) -> None:
+        """Cancel: back to the shift the audio already has."""
+        self._stop_transpose()
+        self._pending = None
+        self.shift_wanted = self.shift
+        self._show_shift()
+        self.progress.configure(value=0)
+        self._say("Transpose cancelled." + (
+            f" Still {keys.shift_label(self.shift)}." if self.shift else ""))
+        settings.log("cancelled while transposing")
+        self._set_state(READY)
+        self._schedule_preview(delay=0)
+
     # ------------------------------------------------------------ trim, fades, cursor (M3)
     def _can_edit(self) -> bool:
         """Sliders work once the audio is downloaded and nothing is busy."""
@@ -733,6 +918,9 @@ class App(tk.Tk):
             btn.set_enabled(play)
         self.play_btn.set_enabled(play)
         self.play_btn.set_symbol("pause" if self.player.playing else "play")
+        can = self._can_transpose()
+        self.shift_down.set_enabled(can and self.shift_wanted > -keys.MAX_SHIFT)
+        self.shift_up.set_enabled(can and self.shift_wanted < keys.MAX_SHIFT)
 
     def _sync_sliders(self) -> None:
         """Push self.spec and self.cursor into both sliders and all the labels."""
@@ -862,14 +1050,14 @@ class App(tk.Tk):
         self._prep_after = None
         if not self.preparing or self.spec is None:
             return
-        if not self._ensure_audio(self._schedule_preview):
+        if not self._ensure_source(self._schedule_preview):
             return
         self._preview_token += 1
         self._preview_cancel = proc.Cancel()
         clip = self._tmp / f"preview-{self._preview_token}.wav"
         threading.Thread(target=self._preview_worker, daemon=True,
                          args=(self._token, self._preview_token, self._preview_cancel,
-                               self.tools["ffmpeg"], self.audio, self.spec, clip)).start()
+                               self.tools["ffmpeg"], self._source(), self.spec, clip)).start()
 
     def _preview_worker(self, token: int, ptoken: int, cancel: proc.Cancel, ffmpeg: str,
                         audio: Path, spec: TrimSpec, clip: Path) -> None:
@@ -1012,6 +1200,22 @@ class App(tk.Tk):
         except Exception as e:
             self._post(token, "error", f"Something went wrong: {e}", repr(e), "fetch")
 
+    def _transpose_worker(self, token: int, cancel: proc.Cancel, tt: int, ffmpeg: str,
+                          rubberband: str, audio: Path, n: int, dest: Path,
+                          duration: float) -> None:
+        try:
+            out = transpose.transpose(
+                ffmpeg, rubberband, audio, n, dest, duration, cancel=cancel, tmp_dir=self._tmp,
+                on_fraction=lambda f: self._post(token, "transpose_progress", tt, n, f))
+            if out is None:
+                return self._post(token, "transpose_cancelled", tt)
+            settings.log(f"transposed {audio.parent.name} by {n:+d}")
+            self._post(token, "transposed", tt, n)
+        except transpose.TransposeError as e:
+            self._post(token, "transpose_error", tt, e.message, e.details)
+        except Exception as e:
+            self._post(token, "transpose_error", tt, f"Transposing failed: {e}", repr(e))
+
     def _save_worker(self, token: int, cancel: proc.Cancel, ffmpeg: str, audio: Path,
                      spec: TrimSpec, out: Path) -> None:
         try:
@@ -1091,6 +1295,31 @@ class App(tk.Tk):
                 self._reset_for_new_url()
                 self.status_var.set("Cancelled.")
                 self._set_state(CANCELLED)
+        elif kind == "transpose_progress":
+            tt, n, fraction = payload
+            if tt == self._transpose_token and self.state == TRANSPOSING:
+                self._step(fraction, f"Transposing {keys.shift_label(n)}… {int(fraction * 100)}%")
+        elif kind == "transposed":
+            tt, n = payload
+            if tt != self._transpose_token or self.state != TRANSPOSING:
+                return
+            self.shift = n
+            self._want_shift(n)          # the copy now exists: applies at once
+        elif kind == "transpose_cancelled":
+            (tt,) = payload
+            if tt == self._transpose_token and self.state == TRANSPOSING:
+                self._cancel_transpose()
+        elif kind == "transpose_error":
+            tt, message, details = payload
+            if tt != self._transpose_token or self.state != TRANSPOSING:
+                return
+            self._pending = None
+            self.shift_wanted = self.shift          # keep the shift the audio has
+            self._show_shift()
+            if details:
+                settings.log("transpose error: " + message + "\n" + details)
+            self._show_error(message, details)
+            self._schedule_preview(delay=0)
         elif kind == "preview_ready":
             ptoken, clip = payload
             if ptoken != self._preview_token or not self.preparing:

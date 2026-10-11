@@ -52,13 +52,16 @@ class FakeRun:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
         self.handlers: list[tuple[Callable, Callable]] = []
+        self.merged: list[list[str]] = []      # calls made with merge_stderr=True
 
     def on(self, match: Callable[[list[str]], bool], action: Callable) -> None:
         self.handlers.append((match, action))
 
-    def __call__(self, argv, on_line=None, cancel=None):
+    def __call__(self, argv, on_line=None, cancel=None, merge_stderr=False):
         argv = [str(a) for a in argv]
         self.calls.append(argv)
+        if merge_stderr:
+            self.merged.append(argv)
         for match, action in self.handlers:
             if match(argv):
                 return action(argv, on_line, cancel)

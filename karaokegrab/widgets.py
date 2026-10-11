@@ -158,3 +158,72 @@ class RoundButton(tk.Canvas):
             # nudged right so the triangle looks centred
             self.create_polygon(c - h * 0.36, c - h / 2, c - h * 0.36, c + h / 2, c + h * 0.62, c,
                                 fill="white", outline="")
+
+
+class PencilButton(tk.Canvas):
+    """A square button with a white pencil, tip down to the left. Drawn on a
+    Canvas because the "✎" glyph is squat and points the other way. Like
+    :class:`Button`: ``set_enabled(bool)``."""
+
+    ANGLE = 62          # degrees above horizontal: steeper than a 45° glyph
+
+    def __init__(self, parent, colour: str, command, *, size: int = 30):
+        super().__init__(parent, width=size, height=size, highlightthickness=0, bd=0,
+                         bg=parent.cget("background"), cursor=HAND)
+        self.size = size
+        self._colour = colour
+        self._command = command
+        self._enabled = True
+        self._hover = False
+        self.bind("<Enter>", lambda _e: self._set_hover(True))
+        self.bind("<Leave>", lambda _e: self._set_hover(False))
+        self.bind("<ButtonRelease-1>", self._release)
+        self._draw()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = bool(enabled)
+        tk.Canvas.configure(self, cursor=HAND if self._enabled else "")
+        self._draw()
+
+    def _set_hover(self, on: bool) -> None:
+        self._hover = on
+        self._draw()
+
+    def _release(self, e) -> None:
+        inside = 0 <= e.x < self.size and 0 <= e.y < self.size
+        if self._enabled and inside and self._command:
+            self._command()
+
+    def _draw(self) -> None:
+        import math
+        self.delete("all")
+        s = self.size
+        fill = self._colour
+        if not self._enabled:
+            fill = _fade(fill)
+        elif self._hover:
+            fill = darken(fill)
+        self.create_rectangle(0, 0, s, s, fill=fill, outline="")
+        # Pencil in its own frame: u runs from the tip (u=0) to the eraser
+        # end, v across it. Then rotated so the tip sits low on the left.
+        a = math.radians(self.ANGLE)
+        ux, uy = math.cos(a), -math.sin(a)          # along the pencil, up and to the right
+        vx, vy = -uy, ux                            # across it
+        length, half = s * 0.78, s * 0.115
+        cx, cy = s / 2, s / 2
+        x0, y0 = cx - ux * length / 2, cy - uy * length / 2      # the tip
+
+        def pt(u: float, v: float) -> tuple[float, float]:
+            return x0 + ux * u + vx * v, y0 + uy * u + vy * v
+
+        tip, body, band = length * 0.26, length * 0.80, length * 0.86
+        white = "white"
+        # sharpened point, with the graphite in the pencil's colour
+        self.create_polygon(*pt(0, 0), *pt(tip, -half), *pt(tip, half), fill=white, outline="")
+        self.create_polygon(*pt(0, 0), *pt(tip * 0.36, -half * 0.36), *pt(tip * 0.36, half * 0.36),
+                            fill=fill, outline="")
+        # body, then a gap, then the eraser
+        self.create_polygon(*pt(tip + 1, -half), *pt(body, -half), *pt(body, half),
+                            *pt(tip + 1, half), fill=white, outline="")
+        self.create_polygon(*pt(band, -half), *pt(length, -half), *pt(length, half),
+                            *pt(band, half), fill=white, outline="")

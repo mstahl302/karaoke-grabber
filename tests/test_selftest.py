@@ -20,11 +20,19 @@ def test_self_test_runs_lookup_download_and_save(monkeypatch, fake_run, video_js
 
     fake_run.on(lambda a: "-J" in a, lambda a, ol, c: result(a, stdout=json.dumps(video_json)))
     fake_run.on(lambda a: "--progress-template" in a, download)
+    def rubberband(argv, on_line, cancel):
+        Path(argv[-1]).write_bytes(b"fLaC")
+        return result(argv)
+
     fake_run.on(lambda a: a[0].endswith("ffmpeg"), ffmpeg)
+    fake_run.on(lambda a: a[0].endswith("rubberband"), rubberband)
     out = io.StringIO()
     assert selftest.run(out=out) == 0
     text = out.getvalue()
     assert "lookup ok" in text and "download ok" in text and "save ok" in text
+    assert "transpose ok" in text
+    save = fake_run.calls[-1]
+    assert save[save.index("-i") + 1].endswith("shift2.flac")
     assert text.rstrip().endswith("self-test passed")
 
 

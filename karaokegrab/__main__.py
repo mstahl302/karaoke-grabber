@@ -1,9 +1,10 @@
 """Command-line front end for the engine (milestone M1):
 
-    python -m karaokegrab "<url>" --key B-flat --start 4.5 --end 339 --fade-out 2
+    python -m karaokegrab "<url>" --key B-flat --transpose 2 --start 4.5 --end 339 --fade-out 2
 
-Looks the video up, downloads its audio once into the cache, then trims,
-fades and saves ``<Song Title> - AUDIO - <key>.mp3``. The work runs on a
+Looks the video up, downloads its audio once into the cache, transposes it
+if asked, then trims, fades and saves ``<Song Title> - AUDIO - <key>.mp3``
+(the key you'll hear). The work runs on a
 worker thread, the way the app will run it; Ctrl-C cancels cleanly.
 """
 
@@ -15,7 +16,8 @@ import threading
 from pathlib import Path
 from typing import Callable, TextIO
 
-from karaokegrab import cache, download, fetch, keys, naming, proc, render, settings, timecode, tools
+from karaokegrab import (cache, download, fetch, keys, naming, proc, render, settings, timecode,
+                         tools, transpose)
 from karaokegrab.trim import TrimSpec
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CANCELLED = 0, 1, 2, 130
@@ -37,6 +39,17 @@ def _key(text: str) -> str:
     return key
 
 
+def _shift(text: str) -> int:
+    try:
+        value = int(text.replace("\u2212", "-"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} isn't a whole number of semitones") from None
+    if abs(value) > keys.MAX_SHIFT:
+        raise argparse.ArgumentTypeError(
+            f"transpose by -{keys.MAX_SHIFT} to +{keys.MAX_SHIFT} semitones")
+    return value
+
+
 def _seconds(text: str) -> float:
     try:
         value = float(text)
@@ -55,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--key", type=_key, default=None,
                    help='the song\'s key, as words: e.g. B-flat, "F-sharp minor" '
                         '(optional; left out of the file name when not given)')
+    p.add_argument("--transpose", type=_shift, default=0, metavar="N",
+                   help=f"shift by N semitones, -{keys.MAX_SHIFT} to +{keys.MAX_SHIFT} "
+                        "(default 0); the file name gets the key you'll hear")
     p.add_argument("--title", help="song title (default: the YouTube title)")
     p.add_argument("--start", type=_seconds, default=0.0, help="trim start, seconds (default 0)")
     p.add_argument("--end", type=_seconds, default=None, help="trim end, seconds (default: track end)")
@@ -133,6 +149,22 @@ def run(args: argparse.Namespace, out: Console, cancel: proc.Cancel) -> Path | N
         fetch.fetch_thumbnail(found["yt-dlp"], info_json, cache.thumb_stem(info.id), cancel=cancel)
     cache.prune(protect=info.id)
 
+    if args.transpose:
+        heard = f" → {keys.effective_key(args.key, args.transpose)}" if args.key else ""
+        out.say(f"  Transpose: {keys.shift_label(args.transpose)}{heard}")
+        label = f"Transposing {keys.shift_label(args.transpose)}"
+        try:
+            audio = transpose.transpose(
+                found["ffmpeg"], found["rubberband"], audio, args.transpose,
+                cache.shifted_audio(info.id, args.transpose), info.duration,
+                on_fraction=lambda f: out.progress(label, f), cancel=cancel)
+        except transpose.TransposeError as e:
+            raise Failure(e.message, e.details) from None
+        out.end_progress()
+        if audio is None:
+            return None
+        settings.log(f"transposed {info.id} by {args.transpose:+d}")
+
     wanted = TrimSpec(args.start, args.end, args.fade_in, args.fade_out)
     spec = wanted.clamped(info.duration)
     if spec != TrimSpec(wanted.start, wanted.end if wanted.end is not None else info.duration,
@@ -149,7 +181,7 @@ def run(args: argparse.Namespace, out: Console, cancel: proc.Cancel) -> Path | N
     folder = folder.expanduser()
     if not folder.is_dir():
         raise Failure(f"The folder {folder} doesn't exist.", code=EXIT_USAGE)
-    path = folder / naming.filename(args.title or info.title, args.key)
+    path = folder / naming.filename(args.title or info.title, args.key, args.transpose)
     if path.exists() and not args.overwrite:
         raise Failure(f"{path} already exists. Use --overwrite to replace it.", code=EXIT_USAGE)
 

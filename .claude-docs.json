@@ -2,87 +2,87 @@
   "_about": "Mirror map: each Markdown file <-> its Claude Doc (for commenting). Keep both in sync; see ~/.claude/CLAUDE.md. The italic 'Mirror of <full path>.' line at the top of each doc exists only in the doc.",
   "docs": {
     "docs/product_spec.md": {
-      "title": "Karaoke Grabber — Product Spec",
+      "title": "Karaoke Grabber \u2014 Product Spec",
       "url": "https://claude.ai/code/artifact/d2209d03-c9f5-4e6f-a275-c78a04d2affc",
       "doc_id": "d2209d03-c9f5-4e6f-a275-c78a04d2affc",
       "tab_id": "2e8177c4-daab",
       "body_id": "66da9133-8a5b",
-      "synced_rev": 380,
-      "synced_sha256": "d8546f527e2c0cd3df7505c291bc6e63aee3fd89081ef474369bef1d268b0157",
+      "synced_rev": 409,
+      "synced_sha256": "c3b86bb52e2c598ab71cfa1d3b21680c3d8db36b528d9d1591cf52d533174a02",
       "images": {
         "docs/ui_mockup.png": {
-          "blob": "blob/ce9c3452-2aae",
-          "asset": "8fb23f72c7e50c84beca5752cb96dab6",
-          "sha256": "cb5b8bc9bcbdc5b96f048840b8dc1ce5c77a7821bfe202cde98873c657707a74"
+          "blob": "blob/76ff68ca-c538",
+          "asset": "9866552fcd1de02d9cdadce2886be480",
+          "sha256": "d38f0a706739237bd0bb675e690eb5904c93b68562e36e46ae120109cd075379"
         }
       }
     },
     "docs/architecture.md": {
-      "title": "Karaoke Grabber — Architecture",
+      "title": "Karaoke Grabber \u2014 Architecture",
       "url": "https://claude.ai/code/artifact/34dd15ed-d25a-48a4-a1fd-440f3ea723b0",
       "doc_id": "34dd15ed-d25a-48a4-a1fd-440f3ea723b0",
       "tab_id": "7f45893b-3b59",
       "body_id": "f06343ac-7c84",
-      "synced_rev": 43,
-      "synced_sha256": "59d9ff85a324c0f87052cb9b5f388e35c264205cd53b77d3b860e03fd507bffa"
+      "synced_rev": 54,
+      "synced_sha256": "1c5ee1003b7b27ab6ccb201c3b1b444197ddfe1fd76663ed26673ec21a3bc0b3"
     },
     "docs/dev_environment.md": {
-      "title": "Karaoke Grabber — Dev Environment",
+      "title": "Karaoke Grabber \u2014 Dev Environment",
       "url": "https://claude.ai/code/artifact/387b6b57-c38a-4406-9c10-8fb825b5ef11",
       "doc_id": "387b6b57-c38a-4406-9c10-8fb825b5ef11",
       "tab_id": "09724502-1e64",
       "body_id": "890fbeef-2e0f",
-      "synced_rev": 29,
-      "synced_sha256": "b8bf801562353dd15ffa5a8128d4d4446da91f0d4867061c58587e7342692c99"
+      "synced_rev": 36,
+      "synced_sha256": "11f9582730b4583f1b288360c39021e53796081ec134744ea288765c7d4fa037"
     },
     "docs/roadmap.md": {
-      "title": "Karaoke Grabber — Roadmap & Feature Requests",
+      "title": "Karaoke Grabber \u2014 Roadmap & Feature Requests",
       "url": "https://claude.ai/code/artifact/35921c14-93e1-4644-b81e-9f2fd5d39575",
       "doc_id": "35921c14-93e1-4644-b81e-9f2fd5d39575",
       "tab_id": "3d12e6b2-625c",
       "body_id": "a86b4962-0945",
-      "synced_rev": 28,
-      "synced_sha256": "047acb2aa8346229f779c61bc9d94c3d9378f9c4391b1613166b7c1de47e19f5"
+      "synced_rev": 33,
+      "synced_sha256": "7fc1f33f1c30c81b5a18bd77d170d76e20b861e90d3e8756166b9f54567820d0"
     },
     "docs/build_plan.md": {
-      "title": "Karaoke Grabber — Build Plan",
+      "title": "Karaoke Grabber \u2014 Build Plan",
       "url": "https://claude.ai/code/artifact/e3c09edd-7622-4a91-b991-65feb4738873",
       "doc_id": "e3c09edd-7622-4a91-b991-65feb4738873",
       "tab_id": "b6905fe2-9020",
       "body_id": "add13309-b3a2",
-      "synced_rev": 29,
-      "synced_sha256": "e9c6dec0c3334db462c71c5bb1b9f040afd8e7a94df7d34343eaabfec540eb20"
+      "synced_rev": 44,
+      "synced_sha256": "175349f7cf080b54293d0e627d3e6d1bc508ca57adcdfa3cf783a277c10c3d6e"
     },
     "README.md": {
-      "title": "Karaoke Grabber — README",
+      "title": "Karaoke Grabber \u2014 README",
       "url": "https://claude.ai/code/artifact/93629bf2-62c1-415f-a016-d207a352c9c4",
       "doc_id": "93629bf2-62c1-415f-a016-d207a352c9c4",
       "tab_id": "5ec407ad-1a25",
       "body_id": "25ac4541-e39e",
-      "synced_rev": 3,
-      "synced_sha256": "38d05853ce7c24f56bd51d8b81ac516b50a0d450383eb7cbb1229569a7269716",
+      "synced_rev": 18,
+      "synced_sha256": "80c555fe8b615e56eae7ee55845b3455dba03073848fb5ea60e6eed2413ae2aa",
       "notes": "Doc links point at the Claude Doc mirrors instead of relative paths; the CI badge is omitted (private repo); code blocks in list items are inline code in the doc.",
       "images": {
         "docs/screenshot_main.png": {
-          "blob": "blob/09b83786-c372",
-          "asset": "8054b32f88295f61672f0b9c8ba5fcae",
-          "sha256": "3693b368e08df4a17216150fadfc1a1735b26d0508bdfa4acec67821f3d9c5ec"
+          "blob": "blob/8bff95a8-2d46",
+          "asset": "5dfb36ff96dcb0f79800b0ce4ecc9f63",
+          "sha256": "389eb652e8adfc0c52c09d09bf8d72fc839a72fcc0e7ce1cbe73f65e57f27b28"
         }
       }
     },
     "USER_GUIDE.md": {
-      "title": "Karaoke Grabber — User's Guide",
+      "title": "Karaoke Grabber \u2014 User's Guide",
       "url": "https://claude.ai/code/artifact/3c52780d-a687-4127-a175-0a2bb07c49a7",
       "doc_id": "3c52780d-a687-4127-a175-0a2bb07c49a7",
       "tab_id": "d06fdb2d-955b",
       "body_id": "381c8544-38bf",
-      "synced_rev": 2,
-      "synced_sha256": "e1a67fd5e1fc19a3d041e0ca8943d2ad56003311bee4db14ea7d6822cf27d8ab",
+      "synced_rev": 7,
+      "synced_sha256": "dd856e7951a49142eede51312995761fbccffd4b5cdeb39e3d5c75785335f37c",
       "images": {
         "docs/screenshot_main.png": {
-          "blob": "blob/376ce208-cadf",
-          "asset": "8aea64e0f2c6aa926120f6affeb954db",
-          "sha256": "3693b368e08df4a17216150fadfc1a1735b26d0508bdfa4acec67821f3d9c5ec"
+          "blob": "blob/0f0b7736-0356",
+          "asset": "ea8fefd103aa17144ec306856f5001f1",
+          "sha256": "389eb652e8adfc0c52c09d09bf8d72fc839a72fcc0e7ce1cbe73f65e57f27b28"
         },
         "docs/guide_tools.png": {
           "blob": "blob/fea05567-2abc",
@@ -98,6 +98,11 @@
           "blob": "blob/2b59daff-47a8",
           "asset": "fe03a03eeb35a94eefa1928b38ce136a",
           "sha256": "c10199832008faa3ae4674b3c1576630dff281cb87c5a8caee149247e233a230"
+        },
+        "docs/guide_transpose.png": {
+          "blob": "blob/571d26d4-ff57",
+          "asset": "8ac8731c00c5fb09eff86eafc5133506",
+          "sha256": "4b6b93a802642f5c18f1d4eaecacbea83a60a3723b1de573084fd7f9485f47ee"
         }
       }
     }

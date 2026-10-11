@@ -1,7 +1,7 @@
 # Karaoke Grabber — Architecture
 
-**Status:** V1, shipped as v1.0
-**Date:** 2026-10-04
+**Status:** v1.1 shipped 2026-10-11 (adds transposition, F17). v1.0 shipped 2026-10-04.
+**Date:** 2026-10-11
 **Owner:** markstahl
 **Related:** [product_spec.md](product_spec.md) · [build_plan.md](build_plan.md) · [dev_environment.md](dev_environment.md) · [roadmap.md](roadmap.md)
 
@@ -19,7 +19,8 @@ and the milestone-by-milestone work is in [build_plan.md](build_plan.md).
 | Language / UI | **Python 3.14** (python.org build) + **Tkinter on Tk 9** | Same as Music Printer. Tk 9 gives native-looking aqua widgets and PNG support. |
 | Downloader | **yt-dlp** (Homebrew), called as a subprocess | The de facto best YouTube downloader, actively maintained. |
 | JS runtime | **deno** (Homebrew) | yt-dlp needs a JavaScript runtime to handle YouTube's player challenges. |
-| Audio processing | **ffmpeg / ffprobe** (Homebrew), called as a subprocess | Trimming, fades, MP3 encoding (libmp3lame) and preview clips. |
+| Audio processing | **ffmpeg / ffprobe** (Homebrew), called as a subprocess | Decoding, trimming, fades, MP3 encoding (libmp3lame) and preview clips. |
+| Pitch shifting | **rubberband** (Homebrew command-line tool), called as a subprocess | Studio-quality pitch shift without changing tempo. A small install; ffmpeg's own `rubberband` filter would need Homebrew's `ffmpeg-full`, about 100 extra packages. |
 | Playback | **`afplay`** (built into macOS) | Tkinter has no audio playback. |
 | Packaging | **PyInstaller** → `Karaoke Grabber.app` | Same as Music Printer. |
 | Tests | **pytest**, GitHub Actions | Same as Music Printer. |
@@ -42,90 +43,130 @@ Python runtime dependencies: **none beyond the standard library**.
 ## 3. Module layout
 
 ```
-main.py                 Tkinter UI + workflow state machine
+main.py                 Tkinter UI + workflow state machine; --self-test
 karaokegrab/
-  __main__.py           tiny CLI for M1: python -m karaokegrab URL --key B-flat --start 4.5 --end 339
-  tools.py              locate yt-dlp / ffmpeg / ffprobe / deno; report what's missing
+  __main__.py           command-line version: python -m karaokegrab URL --key B-flat --transpose 2 --start 4.5 --end 339
+  tools.py              locate yt-dlp / ffmpeg / ffprobe / deno / rubberband; report what's missing
   links.py              pure: one well-formed http(s) link only; YouTube video links only; spot playlist-only links
-  fetch.py              yt-dlp --dump-json → VideoInfo (id, title, channel, duration, thumbnail); title prefills the song title
+  fetch.py              yt-dlp -J → VideoInfo (id, title, channel, duration, thumbnail); title prefills the song title
   download.py           yt-dlp best-audio download into the cache; progress parsing; cancel
-  keys.py               the 24 key names in words, e.g. B-flat, C-sharp minor (dropdown + filename)
-  naming.py             pure: (song title, key?) → "<Song Title> - AUDIO - <key>.mp3" (no key: "<Song Title> - AUDIO.mp3"), / and : replaced
+  transpose.py          shift the cached audio by n semitones with rubberband (via a decoded WAV); cache the result; progress; cancel
+  keys.py               pure: the 24 key names in words (filename) and short (dropdown: B♭, C♯m); the key you hear after a shift
+  naming.py             pure: (song title, key?, shift) → "<Song Title> - AUDIO - <key>.mp3", "… - AUDIO.mp3" or "… - AUDIO (+2).mp3"; / and : replaced
   timecode.py           pure: format seconds for the read-only trim values (parsing arrives with R8)
   trim.py               pure: TrimSpec(start, end, fade_in, fade_out) → ffmpeg argv
-  render.py             run ffmpeg for final MP3 + preview clips; progress; cancel
-  player.py             preview playback via afplay: play from a cursor, stop, report elapsed time
-  cache.py              one cache folder per video id (audio, info.json, thumb.png); prune to last ~10
+  render.py             run ffmpeg for the final MP3 and the preview WAV; progress; cancel
+  player.py             preview playback via afplay; cut the preview at the cursor; report elapsed time
+  cache.py              one cache folder per video id (audio, info.json, thumb.png, transposed audio); prune to last ~10
   proc.py               run one external tool: stream stdout, keep stderr, cancel (kills its process group)
-  settings.py           JSON settings (last save folder, fade defaults) + log file
-  widgets.py            colour-filled Label-based button (aqua ignores tk.Button colours), from Music Printer
+  settings.py           JSON settings (last save folder) + log file
+  selftest.py           check the tools and a real lookup, download, transpose and save, without the window
+  widgets.py            colour-filled Label-based button, round play/pause button and pencil button (aqua ignores tk.Button colours)
   rangeslider.py        two-handle Canvas slider with a cursor marker (Trim and Fade); pixel ↔ seconds math is pure
 tests/                  pytest; subprocess mocked; no network
 assets/                 icon.svg (source) → icon.icns via make_icon.py
-docs/                   product_spec, architecture, dev_environment, roadmap
+docs/                   product_spec, architecture, build_plan, dev_environment, roadmap
 build.sh / run.sh       PyInstaller build / build-and-open
 ```
 
 ## 4. Workflow and data flow
 
 ```
- URL ──Fetch──▶ fetch.py (yt-dlp --dump-json) ──▶ VideoInfo ──▶ info card
+ URL ──Fetch──▶ fetch.py (yt-dlp -J) ──▶ VideoInfo ──▶ info card
                      │
-                     └──▶ download.py (yt-dlp -f bestaudio) ──▶ cache/<id>.<ext>
-                                                                  │
-   Slider/Fades ────▶ trim.py ──▶ ffmpeg argv ──┬──▶ render.py ──▶ preview clip ──▶ player.py (afplay)
+                     └──▶ download.py (yt-dlp -f bestaudio) ──▶ cache/<id>/audio.<ext>
+                                                                    │
+   Transpose n ──────────────────────────────────▶ transpose.py ────┤ n = 0: the audio as downloaded
+                                                  (ffmpeg → WAV,    │ n ≠ 0: cache/<id>/shift<n>.flac
+                                                   rubberband -p n) ▼
+                                                                  source
+                                                                    │
+   Sliders/Fades ───▶ trim.py ──▶ ffmpeg argv ──┬──▶ render.py ──▶ preview WAV ──▶ player.py (afplay)
                                                  │
-   Key ──▶ naming.py ──▶ Save dialog ──▶ path ───┴──▶ render.py ──▶ <path>.part ──rename──▶ <path>.mp3
+   Key + n ──▶ keys.py ──▶ naming.py ──▶ Save dialog ──▶ path ──┴──▶ render.py ──▶ <path>.part ──rename──▶ <path>.mp3
 ```
 
 **UI states:**
 
 `Idle → Fetching → Downloading → Ready → Saving → Saved` (back to
-`Ready`). Also `Error`, and `Cancelled → Idle`.
+`Ready`), and `Ready ⇄ Transposing`. Also `Error`, and `Cancelled → Idle`.
 
-- *Ready* turns on the trim and preview controls and enables **Save**.
-  The key is optional.
+- *Ready* turns on the trim, transpose and preview controls and enables
+  **Save**. The key is optional.
+- *Transposing* makes the shifted source for a new semitone setting; the
+  sliders, preview and Save wait, and the progress bar and Cancel show.
+  Cancel goes back to *Ready* with the previous shift.
 - Cancel during Fetching or Downloading clears the info card and goes to
   *Cancelled*. Cancel during Saving keeps the download and goes back to
   *Ready*, so you can save again.
-- A new URL resets the song title (to the new YouTube title), the trim slider (to the full length), the fades (to none) and the key.
+- A new URL resets the song title (to the new YouTube title), the trim slider (to the full length), the fades (to none), the key (to none) and the shift (to 0).
 
 ## 5. Key design decisions
 
-### 5.1 Use the Homebrew tools instead of `import yt_dlp`
+### 5.1 Use the Homebrew tools instead of Python packages
 
 yt-dlp breaks whenever YouTube changes something, and fixes ship often.
 If PyInstaller froze yt-dlp into the `.app`, every fix would need a
 rebuild. Calling the Homebrew copy means a fix is just
-`brew upgrade yt-dlp`, which Roadmap R3 automates. This also keeps
-ffmpeg out of the bundle, avoiding app size, licensing and code-signing
-issues.
+`brew upgrade yt-dlp`, which Roadmap R3 automates. The same goes for
+ffmpeg and rubberband: keeping them out of the bundle avoids app size,
+licensing and code-signing issues.
 
 **Finder PATH gotcha:** an app launched from Finder doesn't get your
 shell's PATH. `tools.py` therefore searches `/opt/homebrew/bin` and
 `/usr/local/bin` explicitly, and passes a PATH that includes them to
 subprocesses so yt-dlp can find deno and ffmpeg.
 
-### 5.2 Download once, render many
+### 5.2 Download once, transpose once per shift, render many
 
 The best audio stream (usually Opus/WebM or M4A) is downloaded into the
-cache **as is**, without re-encoding. Every preview and the final save
-are separate ffmpeg renders from that one source, so trim changes cost
-milliseconds and the audio is encoded to MP3 only once, at save time.
-The download reuses the metadata saved by Fetch (`--load-info-json`), so
-YouTube is looked up only once per URL.
+cache **as is**, without re-encoding. The download reuses the metadata
+saved by Fetch (`--load-info-json`), so YouTube is looked up only once per
+URL.
 
-### 5.3 Rendering
+Everything after that renders from one **source**: the downloaded audio
+when the shift is 0, otherwise a transposed copy of the whole track made
+once for that shift (§5.3). Every preview and the final save are separate
+ffmpeg renders from the source, so trim and fade changes cost
+milliseconds, and the audio is encoded to MP3 only once, at save time.
 
-- Final save: `ffmpeg -ss <start> -t <length> -i <cache> -af "afade=t=in:st=0:d=…,afade=t=out:st=…:d=…" -c:a libmp3lame -q:a 0 -progress pipe:1 -f mp3 <path>.part`,
+### 5.3 Transposition
+
+- **One shifted copy of the whole track.** Pitch shifting is the slow
+  step, so it isn't part of each render. `transpose.py` decodes the
+  cached audio to a 48 kHz stereo WAV with ffmpeg, runs
+  `rubberband -p <n>` on it (pitch in semitones, tempo unchanged), and
+  keeps the result as `cache/<id>/shift<n>.flac` (FLAC: lossless, half
+  the size of WAV). The track's length doesn't change, so the trim and
+  fade positions stay valid. rubberband's default (R2) engine shifts a
+  5-minute song in about 12 s; its finer R3 engine (`--fine`) took 80 s,
+  too long to wait for. The copy is about 50 MB.
+- **Only the latest shift is kept** per video, besides the download
+  itself: going back to 0 needs nothing, and another shift takes a few
+  seconds to make. The temporary WAV is deleted straight away.
+- **Changing the shift** pauses playback, waits until − / + has been still
+  for 400 ms, cancels a transposition already running, makes the shifted
+  copy (unless it's the one already cached), then remakes the preview.
+  Progress comes from rubberband's own percentage output.
+- **The key you hear.** The 12 major and 12 minor keys in `keys.py` are
+  each listed in chromatic order from C, so the effective key is the
+  entry *n* steps along, wrapping around: B-flat + 2 → C,
+  A minor − 3 → F-sharp minor. Spellings always come from the Key list.
+  `naming.py` uses the effective key; with no key and a shift, it adds
+  "(+2)" or "(-2)" instead, with a plain hyphen so it's easy to type. The
+  window shows a real minus sign (−2).
+
+### 5.4 Rendering
+
+- Final save: `ffmpeg -ss <start> -t <length> -i <source> -af "afade=t=in:st=0:d=…,afade=t=out:st=…:d=…" -c:a libmp3lame -q:a 0 -progress pipe:1 -f mp3 <path>.part`,
   then an atomic rename to `<path>`. Cancel kills ffmpeg and deletes the
   `.part` file.
-- Previews: one WAV of the whole trimmed range (same trim and fades as the
-  save), rendered in the background as soon as the download finishes and
-  again after every trim or fade change. A slider change kills a render
-  in progress; while a handle is being dragged, the new render waits until
-  it has been still for 250 ms. The play buttons are disabled until the
-  preview is ready (about 0.4–0.7 s for a song).
+- Previews: one WAV of the whole trimmed range (same source, trim and
+  fades as the save), rendered in the background as soon as the source is
+  ready and again after every trim, fade or shift change. A change kills a
+  render in progress; while a handle is being dragged, the new render
+  waits until it has been still for 250 ms. The play buttons are disabled
+  until the preview is ready (about 0.4–0.7 s for a song).
 - `afplay` can't seek, so playing from the cursor cuts the tail of the
   preview WAV from that point (`player.slice_wav`, a byte copy of a few
   milliseconds) and plays that; pause kills `afplay` and keeps the cursor
@@ -146,16 +187,18 @@ YouTube is looked up only once per URL.
   length. When the trim shrinks, fades are clamped so they never overlap.
   This is unit-tested.
 
-### 5.4 Progress parsing
+### 5.5 Progress parsing
 
 - yt-dlp runs with `--newline --progress-template "download:PROG|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.eta)s"`,
   and one line is parsed per update. The exact total is used when yt-dlp
   knows it, otherwise the estimate.
 - ffmpeg runs with `-progress pipe:1`; `out_time_us` divided by the
-  trimmed duration gives the percentage.
-- Both parsers are pure functions with tests.
+  expected duration gives the percentage.
+- rubberband prints its progress as a percentage; transposing shows the
+  decode as the first 10% and rubberband as the rest.
+- All three parsers are pure functions with tests.
 
-### 5.5 Error handling
+### 5.6 Error handling
 
 - Every subprocess's stdout and stderr is captured and kept for the
   **Details** pane and the log file.
@@ -163,36 +206,44 @@ YouTube is looked up only once per URL.
   — yt-dlp may be out of date; run `brew upgrade yt-dlp`") and the
   attempt stops. (R3 later adds: check whether it's outdated, upgrade,
   retry once.)
-- On startup, `tools.py` checks for Homebrew, yt-dlp, ffmpeg and deno
-  (F16). Missing tools produce a dialog with the one command to run and a
-  Copy button; a missing Homebrew points to the README.
+- On startup, `tools.py` checks for Homebrew, yt-dlp, ffmpeg, deno and
+  rubberband (F16). Missing tools produce a dialog with the one command to
+  run and a Copy button; a missing Homebrew points to the README.
 - Links are checked on the Tk thread before any yt-dlp call (`links.py`):
   the box must hold exactly one well-formed `http(s)://` link to a single
   YouTube video. Anything else, playlist-only links (yt-dlp would first
   list the whole playlist) and other sites are rejected at once.
 - Fetch problems (a bad link, lookup or download failures, missing tools)
   show in a band right under the link box, with their own **Details**;
-  save and preview problems use the status line at the bottom.
+  save, transpose and preview problems use the status line at the bottom.
+  A failed transposition goes back to the previous shift.
 - Download and save failures are told apart: a network drop, a full disk
   or an unwritable folder each get their own message instead of
   "update yt-dlp". Every error keeps the tool output for **Details** and
   the log.
 - If the cached audio disappears while the app is open (macOS can clear
-  caches), Preview or Save downloads it again and then carries on.
+  caches), Preview, Transpose or Save downloads it again and then carries
+  on.
 - Quitting during a save cancels ffmpeg, waits briefly for the worker and
-  deletes the `.part` file.
+  deletes the `.part` file; quitting while transposing deletes the
+  half-made shifted copy.
 
-### 5.6 Progress and appearance
+### 5.7 Progress and appearance
 
 - One progress bar runs across the whole Fetch, with a message at each
   stop: looking up (3%), thumbnail (8%), downloading (10–95%, real
-  progress), finishing (98%). The background preview then shows
-  "Preparing preview…" with ffmpeg's progress. The bar is hidden when
-  nothing is running. A **Cancel** button sits beside it during Fetch and
-  Save.
+  progress), finishing (98%). Transposing shows "Transposing +2…" with
+  real progress, and the background preview "Preparing preview…". The bar
+  is hidden when nothing is running. A **Cancel** button sits beside it
+  during Fetch, Transpose and Save.
 - Clicking anywhere outside a text field takes keyboard focus out of it
   (Canvas sliders don't take focus themselves), and focus leaves the link
-  box when a fetch finishes, so **Space** plays and pauses.
+  box when a fetch finishes, so the plain-key shortcuts work: **Space**
+  plays and pauses; **=** / **+** (and keypad +) and **−** (and keypad −)
+  press the transpose + / − buttons, so they share the 400 ms wait; **0**
+  sets the shift back to 0. They're bound with `bind_all` and ignored
+  while an Entry has focus or the control is disabled. ⌘+ / ⌘− are left
+  for zoom, as in every Mac app.
 - The window keeps its light look in Dark Mode
   (`::tk::unsupported::MacWindowStyle appearance … aqua` on every window),
   because its cards, sliders and buttons use fixed light colours that
@@ -203,28 +254,47 @@ YouTube is looked up only once per URL.
 | What | Where |
 |------|-------|
 | Settings (JSON) + log | `~/Library/Application Support/Karaoke Grabber/` |
-| Download cache | `~/Library/Caches/Karaoke Grabber/`, pruned to the last ~10 videos |
-| Preview clips | System temp directory, deleted on exit |
+| Download cache: the audio as downloaded, its metadata, thumbnail and the latest transposed copy | `~/Library/Caches/Karaoke Grabber/<video id>/`, pruned to the last ~10 videos |
+| Preview clips and the WAV decoded for transposing | System temp directory, deleted after use and on exit |
 | Output | Wherever you choose in the Save dialog |
 
 ## 7. Testing
 
-- **Unit:** timecode, naming, keys, trim argv, both progress parsers,
-  tool lookup (with a fake filesystem), cache pruning.
+- **Unit:** timecode, naming (with and without a key or shift), keys
+  (the effective key for every key and shift, minor stays minor), trim
+  argv, transpose argv, the three progress parsers, tool lookup (with a
+  fake filesystem), cache pruning.
 - **Flow:** the UI state machine with a real `tk.Tk()` and mocked
-  workers. For example: Save stays disabled until a key is chosen, the
-  key resets on a new URL, and Cancel cleans up `.part` files.
-- **No network in pytest.** A manual `tests/smoke_real_download.py`
-  (not collected by pytest) runs the real tools end to end.
+  workers. For example: Save works without a key, the key and shift reset
+  on a new URL, changing the shift transposes once and remakes the
+  preview, Cancel during transposing restores the previous shift, and
+  Cancel cleans up `.part` files.
+- **No network in pytest.** `--self-test` runs the real tools end to end
+  (lookup, download, transpose, save); run it inside the built app with
+  `env -i` to prove the Finder launch.
 - CI details: [dev_environment.md](dev_environment.md).
 
 ## 8. Build plan
 
-The V1 milestones (M0–M5), their steps and exit criteria live in
-[build_plan.md](build_plan.md).
+The milestones, their steps and exit criteria live in
+[build_plan.md](build_plan.md): M0–M5 built v1.0, M6 adds transposition
+for v1.1.
 
 ## 9. Architectural notes for Roadmap items
 
+- **R3 Updates:** a new `updates.py` that wraps
+  `brew outdated --json=v2 yt-dlp ffmpeg deno rubberband` and
+  `brew upgrade`, run on a startup worker. `download.py` calls it on
+  failure.
+- **R8 Precise trim values:** two-way binding between each slider handle
+  and an editable Entry (`timecode.parse` + clamping), all in `main.py`
+  state, with no engine changes.
+- **R9 Load audio from a file:** an **Open file…** control beside Fetch.
+  `ffprobe` gives the duration and any title tag, which fill a
+  `VideoInfo`-like source with no thumbnail; `audio` points at the file
+  itself, so there's no download and no cache copy (a transposed copy
+  goes in a cache folder keyed by the file's path). Trim, transpose,
+  render, player and naming are unchanged.
 - **R1 Google Drive (if built):** a new `drive.py` using
   `google-auth-oauthlib` (desktop loopback OAuth),
   `google-api-python-client` and `keyring` (refresh token in the macOS
@@ -232,20 +302,6 @@ The V1 milestones (M0–M5), their steps and exit criteria live in
   run on a worker thread from the locally rendered MP3. See roadmap.md
   for the scope and token-expiry gotchas, and the no-code alternative of
   Google Drive for desktop.
-- **R9 Load audio from a file:** an **Open file…** control beside Fetch.
-  `ffprobe` gives the duration and any title tag, which fill a
-  `VideoInfo`-like source with no thumbnail; `audio` points at the file
-  itself, so there's no download and no cache copy. Trim, render, player
-  and naming are unchanged.
-- **R8 Precise trim values:** two-way binding between each slider handle
-  and an editable Entry (`timecode.parse` + clamping), all in `main.py`
-  state, with no engine changes.
-- **R2 Transpose:** add `rubberband=pitch=<2^(n/12)>` to the `trim.py`
-  filter chain. `keys.py` gains effective_key(governing_key, semitones)
-  (B-flat + 2 → C), and naming.py uses the effective key.
-- **R3 Updates:** a new `updates.py` that wraps
-  `brew outdated --json=v2` and `brew upgrade`, run on a startup worker.
-  `download.py` calls it on failure.
 - **R7 / R4 Song title:** a new pure `songname.py` (heuristic), then an
   optional Claude call (`claude -p` CLI or the Anthropic API) behind the
   same interface.
@@ -255,6 +311,23 @@ The V1 milestones (M0–M5), their steps and exit criteria live in
 | Risk | Mitigation |
 |------|------------|
 | YouTube changes break yt-dlp | Homebrew copy plus `brew upgrade`. Clear error message. R3 automates updating. |
-| yt-dlp needs deno | Installed in M0. `tools.py` checks for it and explains if it's missing. |
-| Age-restricted or sign-in-only videos | Out of scope for V1. Possible later: `--cookies-from-browser`. |
-| A Finder-launched app can't find the tools | Explicit search paths and an augmented PATH (§5.1). Unit-tested. |
+| yt-dlp needs deno | `tools.py` checks for it and explains if it's missing. |
+| Transposed audio sounds unnatural | rubberband is the reference-quality library; shifts are limited to ±9 semitones; you hear the result before saving. |
+| Transposing a long track takes a while | Done once per shift, in the background, with progress and Cancel; only the latest shift is cached. |
+| Age-restricted or sign-in-only videos | Out of scope. Possible later: `--cookies-from-browser`. |
+| A Finder-launched app can't find the tools | Explicit search paths and an augmented PATH (§5.1). Unit-tested; `--self-test` proves it in the built app. |
+
+## 11. Open questions
+
+None right now.
+
+## Alternatives considered
+
+- **Pitch shifting inside ffmpeg (rejected 2026-10-06).** Homebrew's
+  `ffmpeg-full` has the rubberband library built in as an ffmpeg filter,
+  so transposing could have been one more filter in each render. It brings
+  about 100 extra Homebrew packages, and running the filter on every
+  preview would make each one slow. ffmpeg's built-in `asetrate` +
+  `atempo` filters need nothing new but sound noticeably worse. The
+  rubberband command-line tool became part of the base platform instead,
+  making one shifted copy per shift (§5.3).

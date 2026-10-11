@@ -139,9 +139,53 @@ test (a generated track at a known BPM, checked to a few ms).
 - Should the click replace the count-in/pickup beats before the first
   note, or only run during the music?
 
+### R12. Recent songs
+
+*(High priority: planned right after R11.)*
+
+When you rip a song you often want a variation of it to practice (another
+key or tempo). Today that means finding the original link and downloading
+it again. R12 keeps a **Recent** list so you can pick the song up where you
+left it.
+
+- **A Recent dropdown** next to Fetch lists the last 10 songs, newest
+  first, **by the song title you gave them** (the edited title, not the
+  YouTube title and not the URL). Picking one loads it straight into the
+  info card: thumbnail, title, channel, duration. Then change key, speed,
+  trim or fades and Save as usual.
+- **Always from the original.** Picking a song loads the untouched
+  download, never a saved MP3, so each variation is made from the source
+  and you never transform a transformation. This is why it beats opening
+  a saved file (R9): saved file names aren't canonical and the audio is
+  already processed.
+- **No re-download.** The cache already keeps the last 10 downloads
+  (`KEEP = 10`, one folder per video id), so the history can be the same
+  10, and picking one is instant and works offline. If an entry's audio
+  has been pruned or deleted, picking it fetches the original link again
+  (its video id stays in the list).
+- **What is stored.** Per song: video id, link, your song title, and when
+  it was last used. Kept in `settings.json`, or as a small `recent.json`
+  in the cache folder, so the title survives restarts. The cache pruning
+  and the list use the same "last used" order, so they never disagree.
+- **Edge cases.** Fetching a link already in the list moves it to the top
+  instead of duplicating it. Editing the title (the pencil) updates the
+  list entry. The list is capped at 10; the oldest falls off together
+  with its cached audio. A "Clear recent" item at the bottom of the
+  dropdown removes the list.
+- **Last settings** (key, speed, trim) could be remembered per song so a
+  reselected song comes back as you left it. That would be a small
+  extension; it isn't part of R12.
+
+*Questions:*
+
+- Open the last song automatically at startup, or leave the window empty
+  until you pick one?
+- Should Open file… (R9) loads also appear in the list, or only YouTube
+  songs? (A file isn't in the cache, so it would need its own path.)
+
 ### R8. Precise trim values
 
-*(High priority: planned after R11.)*
+*(High priority: planned after R12.)*
 
 V1 trims and fades with sliders and shows their values as read-only
 seconds. R8 ties each slider handle (trim and fade) to an **editable**

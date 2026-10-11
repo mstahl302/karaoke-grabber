@@ -1,6 +1,6 @@
 # Karaoke Grabber — Build Plan
 
-**Status:** v1.1 shipped 2026-10-11 (M0–M6). v1.0 shipped 2026-10-04 (M0–M5).
+**Status:** v1.2 shipped 2026-10-11 (M0–M7). v1.1 shipped 2026-10-11 (M0–M6); v1.0 shipped 2026-10-04 (M0–M5).
 **Date:** 2026-10-11
 **Owner:** markstahl
 **Related:** [product_spec.md](product_spec.md) · [architecture.md](architecture.md) · [dev_environment.md](dev_environment.md) · [roadmap.md](roadmap.md)
@@ -43,6 +43,7 @@ in the roadmap.
 | M4 | Polish | Shortcuts, Finder reveal, prerequisite check, error details, cache, robustness | F11, F13, F16 | M |
 | M5 | Ship | Icon, `.app`, README, user guide, `v1.0` on GitHub | F12, F14 | M |
 | M6 | Transpose (v1.1) | Shift a track by semitones, effective key in the name, `v1.1` | F17; F3, F5, F8, F10, F16 | L |
+| M7 | Speed (v1.2) | Slow down or speed up a track (50–150%) without changing its pitch, `v1.2` | F18; F3, F4, F5, F6, F8, F10 | L |
 
 Size is a rough relative effort: S (an hour or two), M (half a day),
 L (a day or more).
@@ -313,7 +314,114 @@ same tempo and saves as `<Song Title> - AUDIO - C.mp3`; changing the
 shift, Cancel and a new URL behave as specified; tests and CI green;
 `v1.1` is on GitHub.
 
-## 10. Feature traceability
+## 10. M7 — Speed (v1.2)
+
+**Goal:** play and save a track slower or faster, from 50% to 150% of
+its speed (default 100%), without changing its pitch, together with
+Transpose. Released as `v1.2`. This is feature request FR3 (Tempo
+change), picked up as product spec feature **F18 Speed**.
+
+**How it works (to be written into the spec and architecture once this
+plan is approved):**
+
+- **One processed copy, as for Transpose.** rubberband changes the tempo
+  and the pitch in the same pass (`rubberband -T 0.75 -p 2`), so a speed
+  is handled exactly like a shift: one copy of the whole track per
+  setting, made once in the background with progress and Cancel, and
+  every preview and the save render from it. The copy for the current
+  shift and speed is `cache/<id>/shift2-speed75.flac`; only the latest is
+  kept, and 0 / 100% uses the download itself.
+- **Trial on the 4:52 My Way track (shifted +2 at the same time):**
+  25% took 40 s and came out at exactly 4× the length (19:29); 75% took
+  14 s; 150% took 9 s. At 25% the 24-bit FLAC rubberband writes is
+  211 MB; converting it to 16-bit FLAC (1 s) halves that, so the cache
+  keeps 16-bit copies. The range starts at 50% rather than 25%: slower
+  than that sounds smeared, and 50% (19 s and 52 MB for the same track)
+  is slow enough for learning a song.
+- **The sliders stay on the original track's timeline.** Trim, fades and
+  the cursor keep their positions in the song as published, so changing
+  the speed never moves your trim points: an intro that ends at 0:04.5
+  still ends there. Renders map those times onto the slower or faster
+  copy (divide by the speed). The fades stretch with the music: a 2 s
+  fade at 50% lasts 4 s. Under the Trim slider, the trimmed length also
+  shows how long the saved file will be, e.g. "Trimmed length 5:34.5 ·
+  7:26.0 at 75%". The playback cursor moves at the song's pace.
+- **The control.** On the Key and Transpose row, to the right after a
+  gap: **Speed [100] %**, a small number box with up/down arrows (a
+  `ttk.Spinbox`, 50–150, steps of 5). Type any whole number and press
+  Return (or click away) to apply it; anything outside 50–150 is pulled
+  back into range, and anything that isn't a whole number goes back to
+  the last value. Arrow clicks, like − / +, wait until you stop for
+  600 ms (raised from Transpose's 400 ms after the interactive test, where
+  steady clicking still let it start). Resets to 100% for each new URL. The row keeps fixed widths, so
+  the window still never resizes. Keys, like Transpose's (not while
+  typing in a text field): **]** faster by 5%, **[** slower by 5%, **`\`**
+  back to 100%.
+- **The busy state.** *Transposing* becomes *Preparing audio*: the same
+  state, wait, progress, Cancel (back to the previous shift and speed)
+  and failure handling, with the message naming what's being made:
+  "Transposing +2…", "Changing the speed to 75%…", or "Preparing +2 at
+  75%…" when both differ from 100% / 0.
+- **The filename** gets the speed when it isn't 100%:
+  `Defying Gravity - AUDIO - C (75%).mp3`, or
+  `Defying Gravity - AUDIO (+2, 75%).mp3` with no key.
+
+**Steps:**
+
+1. **Setup and trial.** Branch `m7-speed`. Listen to the trial files at
+   50%, 75% and 150% with the default (R2) engine and with `--fine`
+   (R3), which may hold up better at big slow-downs; time both and pick
+   one (possibly R3 only below some speed). Confirm the 16-bit FLAC step
+   and that the length is exactly the original divided by the speed.
+2. **`trim.py`:** `TrimSpec.scaled(1 / speed)` and the source ↔ copy time
+   mapping for renders, the preview offset, "From end" (the last 10 s *as
+   heard*) and the cursor. Tests: every mapping at 50%, 75%, 100%, 150%;
+   fades stay inside the trim after scaling.
+3. **`naming.py`:** the speed in the name when it isn't 100%:
+   `… - AUDIO - C (75%).mp3`, `… - AUDIO (+2, 75%).mp3`,
+   `… - AUDIO (75%).mp3`. Tests with and without a key and a shift.
+4. **`transpose.py`** (it now prepares the audio for any shift and
+   speed): `rubberband -T <speed> -p <shift>`, then the 16-bit FLAC step;
+   progress (decode 10%, rubberband 85%, convert 5%); the cache name
+   `shift<n>-speed<p>.flac` with `cache.processed_audio(id, shift, speed)`,
+   latest only; nothing to do at 0 / 100%. Tests with fake processes:
+   argv, progress, cancel cleanup, reuse, old copies removed.
+5. **Rendering, playback and the CLI:** the preview and the save render
+   from the processed copy with the scaled spec; `Player` positions map
+   back to the original timeline, so the cursor keeps up with the song.
+   CLI `--speed 75` (50–150); `--self-test` also slows the track to 75%.
+   Tests.
+6. **UI (F18):** the Speed box on the Key row with the "%" label;
+   validation and clamping; Return / click-away / arrow clicks with the
+   600 ms wait (for − / + too); *Preparing audio* with its messages; the trimmed length
+   "· 7:26.0 at 75%"; disabled until the download is in and while
+   saving; resets to 100% for a new URL; fixed widths. Keys ] / [ / `\`
+   (Space, the transpose keys and these are ignored while typing in the
+   box, which is a text field).
+7. **Flow tests:** a speed change prepares the audio once and remakes the
+   preview; rapid arrow clicks prepare once; typed values clamp, junk is
+   rejected; Cancel restores the previous speed and shift; shift and
+   speed together make one copy; trim points don't move when the speed
+   changes; the Save name and the saved length follow the speed; speed
+   resets on a new URL; the window doesn't resize; ] / [ / `\` change the
+   speed but not while typing.
+8. **Docs and mockup:** the product spec (F18, workflow, UI, mockup),
+   architecture (§5.3 becomes "Transposition and speed", the timeline
+   mapping, risks), README, User's Guide (a "Speed" section with a
+   screenshot), and their Claude Docs; FR3 removed from the roadmap.
+   (The spec, architecture and roadmap are updated once this plan is
+   approved, before building starts.)
+9. **Ship v1.2:** version 1.2; build; `--self-test` in the built app with
+   `env -i`; reinstall in /Applications; interactive test; tag `v1.2` and
+   push.
+
+**Exit criteria:** a track set to 75% previews and saves at three
+quarters of the speed in the same key (and transposed when a shift is
+set), its trim points unchanged and its saved length the trimmed length
+÷ 0.75; 50% and 150% work; typing, arrows, Cancel and a new URL behave as
+specified; tests and CI green; `v1.2` is on GitHub.
+
+## 11. Feature traceability
 
 Every feature in the product spec, and the milestone that delivers it.
 
@@ -321,14 +429,14 @@ Every feature in the product spec, and the milestone that delivers it.
 |---------|-----------|
 | F1 Fetch from URL | M1 (engine), M2 (UI) |
 | F2 Audio only, MP3 out | M1 |
-| F3 Download once, trim many | M1; M6 (also across shifts) |
-| F4 Trim | M1 (engine), M3 (UI) |
-| F5 Preview by ear | M3, M4; M6 (transposed preview) |
-| F6 Fades | M1 (engine), M3 (UI) |
+| F3 Download once, trim many | M1; M6 (also across shifts); M7 (and speeds) |
+| F4 Trim | M1 (engine), M3 (UI); M7 (stays on the original timeline) |
+| F5 Preview by ear | M3, M4; M6 (transposed preview); M7 (at speed) |
+| F6 Fades | M1 (engine), M3 (UI); M7 (stretch with the speed) |
 | F7 Key dropdown (the original key) | M2 |
-| F8 Prefilled filename | M1 (naming), M2 (dialog); M6 (effective key) |
+| F8 Prefilled filename | M1 (naming), M2 (dialog); M6 (effective key); M7 (speed) |
 | F9 Save to local disk | M2 |
-| F10 Progress & Cancel | M2, M4; M6 (transposing) |
+| F10 Progress & Cancel | M2, M4; M6 (transposing); M7 (preparing audio) |
 | F11 Plain-English errors | M2, M4 |
 | F12 Mac app with icon | M5 |
 | F13 Small conveniences | M4 |
@@ -336,7 +444,8 @@ Every feature in the product spec, and the milestone that delivers it.
 | F15 Editable song title | M2 |
 | F16 Prerequisite check | M1 (`tools.py`), M4 (dialog); M6 (rubberband) |
 | F17 Transpose | M6 |
+| F18 Speed | M7 |
 
-## 11. Open questions
+## 12. Open questions
 
 None right now.

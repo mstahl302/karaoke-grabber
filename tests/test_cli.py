@@ -159,7 +159,7 @@ def test_transpose_renders_from_the_shifted_copy(all_tools, fake_tools, tmp_path
     assert "Transposing +2" in text
     rb = [c for c in fake_tools.calls if c[0].endswith("rubberband")]
     assert len(rb) == 1 and rb[0][1:3] == ["-p", "2"]
-    shifted = cache.shifted_audio("jNQXAC9IVRw", 2)
+    shifted = cache.processed_audio("jNQXAC9IVRw", 2)
     assert shifted.exists()
     save = fake_tools.calls[-1]
     assert save[save.index("-i") + 1] == str(shifted)
@@ -175,4 +175,27 @@ def test_transpose_renders_from_the_shifted_copy(all_tools, fake_tools, tmp_path
 def test_transpose_out_of_range_is_a_usage_error(capsys, value):
     with pytest.raises(SystemExit) as e:
         cli.main([URL, "--transpose", value])
+    assert e.value.code == 2
+
+
+def test_speed_renders_the_song_timeline_on_the_slowed_copy(all_tools, fake_tools, tmp_path):
+    code, text = _main(URL, "--key", "B-flat", "--speed", "75", "--title", "Zoo Song",
+                       "--start", "3", "--end", "15", "--fade-out", "3", "--out", str(tmp_path))
+    assert code == cli.EXIT_OK, text
+    assert (tmp_path / "Zoo Song - AUDIO - B-flat (75%).mp3").exists()
+    assert "Changing the speed to 75%" in text
+    assert "(12.0 s), 16.0 s at 75%" in text
+    rb = next(c for c in fake_tools.calls if c[0].endswith("rubberband"))
+    assert rb[1:5] == ["-p", "0", "-T", "0.75"]
+    save = fake_tools.calls[-1]
+    assert save[save.index("-i") + 1] == str(cache.processed_audio("jNQXAC9IVRw", 0, 75))
+    # 3–15 s of the song is 4–20 s of the copy; the 3 s fade-out lasts 4 s
+    assert save[save.index("-ss") + 1] == "4" and save[save.index("-t") + 1] == "16"
+    assert save[save.index("-af") + 1] == "afade=t=out:st=12:d=4"
+
+
+@pytest.mark.parametrize("value", ["45", "155", "fast"])
+def test_speed_out_of_range_is_a_usage_error(capsys, value):
+    with pytest.raises(SystemExit) as e:
+        cli.main([URL, "--speed", value])
     assert e.value.code == 2

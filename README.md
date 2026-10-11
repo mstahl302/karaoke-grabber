@@ -6,7 +6,8 @@ A small macOS app that turns a YouTube karaoke (backing) track into a
 trimmed, faded, correctly named MP3 in your key:
 `<Song Title> - AUDIO - <key>.mp3` (the key is optional). Paste a link,
 trim off the intro and outro by ear, add fades if you like, transpose it
-up or down if you sing it in another key, and save.
+up or down if you sing it in another key, slow it down to learn it, and
+save.
 
 ![Karaoke Grabber with a track loaded, trimmed and transposed](docs/screenshot_main.png)
 
@@ -56,7 +57,8 @@ app, choose **Open**, then **Open** again. After that it opens normally.
 3. Listen with **From start**, the round play/pause button (or Space) and
    **From end**.
 4. Optionally pick the **Key**, transpose with **−** / **+** (or the − and
-   = keys), and tidy the title with the pencil.
+   = keys), set the **Speed** (50–150%, or the [ and ] keys), and tidy the
+   title with the pencil.
 5. **Save MP3…** (or ⌘S).
 
 The [User's Guide](USER_GUIDE.md) covers each step with pictures.
@@ -90,12 +92,12 @@ sites you use and the laws where you live.
 ```
 main.py                 Tkinter UI + workflow state machine; --self-test
 karaokegrab/
-  __main__.py           command-line version: python -m karaokegrab URL --key B-flat --transpose 2 --start 4.5 --end 339
+  __main__.py           command-line version: python -m karaokegrab URL --key B-flat --transpose 2 --speed 75 --start 4.5 --end 339
   tools.py              find yt-dlp / ffmpeg / ffprobe / deno / rubberband; report what's missing
   links.py              check the pasted link: one well-formed YouTube video link
   fetch.py              yt-dlp -J → VideoInfo (title, channel, duration, thumbnail)
   download.py           best-audio download into the cache; progress; cancel
-  transpose.py          shift the pitch by semitones with rubberband; cache the shifted copy
+  transpose.py          shift the pitch and change the speed with rubberband; cache the copy
   cache.py              one cache folder per video; keep the 10 most recent
   trim.py               trim and fades → ffmpeg command lines (pure)
   render.py             run ffmpeg for the saved MP3 and the preview WAV
@@ -127,9 +129,9 @@ python3.14 -m venv .venv
 ```
 
 - **Command line:**
-  `.venv/bin/python -m karaokegrab "<url>" --key B-flat --transpose 2 --start 4.5 --end 339 --fade-out 2`
+  `.venv/bin/python -m karaokegrab "<url>" --key B-flat --transpose 2 --speed 75 --start 4.5 --end 339 --fade-out 2`
   (`--help` lists everything).
-- **Self-test** (tools, a real lookup, download, transpose and save, no window). Run
+- **Self-test** (tools, a real lookup, download, transpose and slow down, and save, no window). Run
   inside the built app with an empty environment, it proves the app works
   the way Finder starts it:
 

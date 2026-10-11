@@ -49,6 +49,13 @@ class TrimSpec:
         """Where the fade-out begins, in output time."""
         return self.length - self.fade_out
 
+    def scaled(self, factor: float) -> TrimSpec:
+        """The same moments in a copy *factor* times as long: the song's
+        timeline mapped onto a slowed-down (factor > 1) or sped-up copy.
+        Fades stretch with the music."""
+        end = None if self.end is None else self.end * factor
+        return TrimSpec(self.start * factor, end, self.fade_in * factor, self.fade_out * factor)
+
     def clamped(self, duration: float) -> TrimSpec:
         """A valid spec for a track of *duration* seconds: inside the track,
         End at least MIN_LENGTH after Start, fades never negative and never

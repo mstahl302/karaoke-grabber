@@ -2,8 +2,8 @@
 
 Karaoke Grabber turns a karaoke (backing) track on YouTube into an MP3
 you can rehearse and perform with: trimmed to start and end where you
-want, with optional fades, in the key you sing it in, and named the way
-you name your tracks.
+want, with optional fades, in the key you sing it in, at the speed you
+want, and named the way you name your tracks.
 
 ![The Karaoke Grabber window with a track ready to save](docs/screenshot_main.png)
 
@@ -97,6 +97,24 @@ next to the Key:
 
 ![Transposing a B-flat track up 3 semitones to D-flat, with progress and Cancel](docs/guide_transpose.png)
 
+## Speed
+
+To learn a song, slow it down; to push the pace, speed it up. **Speed**
+is at the right end of the Key row:
+
+- Click its small arrows to go 5% slower or faster, or type a number from
+  50 to 150 and press Return. 100% is the speed as published. The pitch
+  stays the same, and it works together with Transpose.
+- Your trim and fades stay where they are in the song, so you can change
+  the speed without trimming again. The fades stretch with the music. The
+  trimmed length also shows how long the saved file will be, e.g.
+  "Trimmed length 7:15.5 · 9:40.7 at 75%".
+- Like Transpose, the first time for each speed takes a little while:
+  about 20 seconds at 50% for a 5-minute song. **Cancel** goes back to
+  the speed you had.
+
+![Preparing a B-flat track at +2 and 75% speed, with progress and Cancel](docs/guide_speed.png)
+
 ## Saving
 
 Click **Save MP3…** or press ⌘S. The Mac's Save window opens with the name
@@ -105,7 +123,10 @@ filled in:
 - `Defying Gravity - AUDIO - D-flat.mp3` with a key: the key you'll hear,
   so a B-flat track raised 2 is saved as `… - AUDIO - C.mp3`;
 - `Defying Gravity - AUDIO.mp3` without one, or
-  `Defying Gravity - AUDIO (+2).mp3` if it's transposed.
+  `Defying Gravity - AUDIO (+2).mp3` if it's transposed;
+- with a speed other than 100% added in brackets:
+  `Defying Gravity - AUDIO - C (75%).mp3`, or
+  `Defying Gravity - AUDIO (+2, 75%).mp3` without a key.
 
 It opens in the folder you saved to last time. Saving takes a few
 seconds; **Cancel** stops it and nothing is written.
@@ -125,11 +146,14 @@ a gig.
 | = or + | Transpose up a semitone |
 | − | Transpose down a semitone |
 | 0 | Back to the original key |
+| ] | 5% faster |
+| [ | 5% slower |
+| `\` | Back to 100% speed |
 | ⌘S | Save MP3… |
 | ⌘Q | Quit (stops anything still running) |
 
-Space, =, +, − and 0 work whenever you're not typing in the link box;
-click anywhere else in the window first.
+These keys (all but Return, ⌘S and ⌘Q) work whenever you're not typing
+in the link box or the Speed box; click anywhere else in the window first.
 
 ## When something goes wrong
 

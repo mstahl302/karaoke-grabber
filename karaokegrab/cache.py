@@ -4,7 +4,8 @@
         audio.<ext>     best audio stream as downloaded (Opus/WebM, M4A, ...)
         info.json       yt-dlp metadata, reused for the thumbnail
         thumb.png
-        shift<n>.flac   the latest transposed copy, n semitones (e.g. shift2, shift-3)
+        shift<n>-speed<s>.flac   the latest processed copy: n semitones, s% speed
+                                 (e.g. shift2-speed100, shift0-speed75)
 
 A folder's modification time marks when it was last used; :func:`prune`
 keeps the most recent few.
@@ -45,9 +46,10 @@ def audio_template(video_id: str, root: Path | None = None) -> str:
     return str(video_dir(video_id, root) / f"{AUDIO_STEM}.%(ext)s")
 
 
-def shifted_audio(video_id: str, shift: int, root: Path | None = None) -> Path:
-    """Where the copy transposed by *shift* semitones lives."""
-    return video_dir(video_id, root) / f"shift{shift}.flac"
+def processed_audio(video_id: str, shift: int, speed: int = 100,
+                    root: Path | None = None) -> Path:
+    """Where the copy shifted by *shift* semitones at *speed* percent lives."""
+    return video_dir(video_id, root) / f"shift{shift}-speed{speed}.flac"
 
 
 def _is_partial(p: Path) -> bool:

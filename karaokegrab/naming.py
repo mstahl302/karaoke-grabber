@@ -1,6 +1,7 @@
 """The saved file's name (product spec F8): ``<Song Title> - AUDIO - <key>.mp3``
 with the key you'll hear after any transposing, or ``<Song Title> - AUDIO.mp3``
-when no key is chosen, ``<Song Title> - AUDIO (+2).mp3`` if it's transposed."""
+when no key is chosen, ``<Song Title> - AUDIO (+2).mp3`` if it's transposed.
+A speed other than 100% joins in brackets: ``… - C (75%)``, ``(+2, 75%)``."""
 
 from __future__ import annotations
 
@@ -26,11 +27,13 @@ def clean_title(title: str) -> str:
     return t or UNTITLED
 
 
-def filename(title: str, key: str | None = None, shift: int = 0) -> str:
-    """*key* is the original key; *shift* the transposition in semitones.
-    The shift is written with a plain hyphen, (-2), so it's easy to type."""
+def filename(title: str, key: str | None = None, shift: int = 0, speed: int = 100) -> str:
+    """*key* is the original key; *shift* the transposition in semitones;
+    *speed* a percentage. The shift is written with a plain hyphen, (-2),
+    so it's easy to type."""
+    pct = f"{speed}%" if speed != 100 else ""
     if key:
-        return f"{clean_title(title)} - AUDIO - {keys.effective_key(key, shift)}.mp3"
-    if shift:
-        return f"{clean_title(title)} - AUDIO ({shift:+d}).mp3"
-    return f"{clean_title(title)} - AUDIO.mp3"
+        tail = f" ({pct})" if pct else ""
+        return f"{clean_title(title)} - AUDIO - {keys.effective_key(key, shift)}{tail}.mp3"
+    inside = ", ".join(x for x in (f"{shift:+d}" if shift else "", pct) if x)
+    return f"{clean_title(title)} - AUDIO" + (f" ({inside})" if inside else "") + ".mp3"

@@ -85,6 +85,9 @@ class Tools:
         return result(argv)
 
     def ffmpeg(self, argv, on_line, cancel):
+        if "-sample_fmt" in argv:                      # rubberband's output → 16-bit FLAC
+            Path(argv[-1]).write_bytes(b"fLaC16")
+            return result(argv)
         if Path(argv[-1]).name.startswith("transpose-"):   # decoding for rubberband
             Path(argv[-1]).write_bytes(b"RIFF")
             on_line("out_time_us=9500000")
@@ -819,15 +822,15 @@ def test_rapid_clicks_transpose_once_and_remake_the_preview(fake_tools, app, qui
     app.transpose_by(1)
     app.transpose_by(1)
     assert app.shift_var.get() == "+2" and app.heard_var.get() == "→ C"
-    assert app.state == main.TRANSPOSING
-    assert app.save_blocker() == "transposing…"
+    assert app.state == main.PREPARING
+    assert app.save_blocker() == "preparing audio…"
     assert app.cancel_btn.winfo_manager() == "grid"
     _transposed(app)
     assert [a[1:3] for a in fake_tools.rubberband_argvs] == [["-p", "2"]]
     assert app.shift == 2
-    assert _preview_source(fake_tools) == "shift2.flac"
+    assert _preview_source(fake_tools) == "shift2-speed100.flac"
     assert app.status_var.get() == "Transposed +2 → C."
-    assert sorted(p.name for p in cache.video_dir("jNQXAC9IVRw").glob("shift*")) == ["shift2.flac"]
+    assert sorted(p.name for p in cache.video_dir("jNQXAC9IVRw").glob("shift*")) == ["shift2-speed100.flac"]
 
 
 def test_save_uses_the_shifted_audio_and_the_key_you_hear(fake_tools, app, save_to, quick_transpose):
@@ -839,7 +842,7 @@ def test_save_uses_the_shifted_audio_and_the_key_you_hear(fake_tools, app, save_
     app.save()
     _pump(app, lambda: app.state == main.SAVED)
     assert save_to["initialfile"] == "Me at the zoo - AUDIO - C.mp3"
-    assert Path(fake_tools.save_argv[fake_tools.save_argv.index("-i") + 1]).name == "shift2.flac"
+    assert Path(fake_tools.save_argv[fake_tools.save_argv.index("-i") + 1]).name == "shift2-speed100.flac"
 
 
 def test_a_shift_without_a_key_goes_in_the_filename(fake_tools, app, save_to, quick_transpose):
@@ -859,7 +862,7 @@ def test_going_back_to_a_made_shift_is_instant(fake_tools, app, quick_transpose)
     app.reset_shift()
     assert app.state == main.READY and app.shift == 0
     _preview_ready(app)
-    assert app.status_var.get() == "Back in the original key."
+    assert app.status_var.get() == "Back in the original key and speed."
     assert _preview_source(fake_tools) == "audio.webm"
     app.transpose_by(1)                       # shift1.flac is still cached
     assert app.state == main.READY and app.shift == 1
@@ -879,10 +882,10 @@ def test_cancel_restores_the_previous_shift(fake_tools, app, quick_transpose):
     assert app.shift == 1 and app.shift_var.get() == "+1"
     _pump(app, lambda: not app._worker.is_alive())
     _preview_ready(app)
-    assert app.status_var.get() == "Transpose cancelled. Still +1."
-    assert _preview_source(fake_tools) == "shift1.flac"
+    assert app.status_var.get() == "Cancelled. Still +1."
+    assert _preview_source(fake_tools) == "shift1-speed100.flac"
     names = sorted(p.name for p in cache.video_dir("jNQXAC9IVRw").iterdir())
-    assert "shift2.flac" not in names and "shift2.part.flac" not in names
+    assert "shift2-speed100.flac" not in names and "shift2-speed100.part.flac" not in names
 
 
 def test_a_click_during_transposing_cancels_it_and_starts_over(fake_tools, app, quick_transpose):
@@ -951,12 +954,12 @@ def test_a_shifted_copy_removed_from_the_cache_is_made_again(fake_tools, app, sa
     _ready(app)
     app.transpose_by(1)
     _transposed(app)
-    cache.shifted_audio("jNQXAC9IVRw", 1).unlink()
+    cache.processed_audio("jNQXAC9IVRw", 1).unlink()
     app.save()
     _pump(app, lambda: app.state == main.SAVED)
     assert len(fake_tools.rubberband_argvs) == 2
     assert save_to["initialfile"] == "Me at the zoo - AUDIO (+1).mp3"
-    assert Path(fake_tools.save_argv[fake_tools.save_argv.index("-i") + 1]).name == "shift1.flac"
+    assert Path(fake_tools.save_argv[fake_tools.save_argv.index("-i") + 1]).name == "shift1-speed100.flac"
 
 
 def test_dropdown_uses_short_names_but_the_file_name_keeps_words(fake_tools, app, save_to,
@@ -1004,3 +1007,177 @@ def test_status_names_the_shift_after_the_preview_is_ready(fake_tools, app, quic
     assert app.status_var.get() == "Transposed +1."
     _pick(app, "B-flat")
     assert app.status_var.get() == "Transposed +1 → B."
+
+
+# --- speed (F18) ----------------------------------------------------------------
+
+def _speed(app, value):
+    """Click the speed box's arrows up to *value* (the box already shows it)."""
+    app.speed_var.set(str(value))
+    app._speed_arrow()
+
+
+def _preview_t(fake_tools):
+    argv = fake_tools.preview_argvs[-1]
+    return float(argv[argv.index("-ss") + 1]), float(argv[argv.index("-t") + 1])
+
+
+def test_speed_box_waits_for_the_download(fake_tools, app):
+    app.update()
+    assert str(app.speed_box.cget("state")) == "disabled"
+    app.speed_by(-5)
+    assert app.speed_wanted == 100
+    _ready(app)
+    assert str(app.speed_box.cget("state")) == "normal"
+    assert app.speed_var.get() == "100"
+
+
+def test_rapid_arrow_clicks_prepare_once_and_remake_the_preview(fake_tools, app, quick_transpose):
+    _ready(app)
+    _speed(app, 95)
+    _speed(app, 90)
+    assert app.state == main.PREPARING
+    assert app.status_var.get() == "Changing the speed to 90%…"
+    _transposed(app)
+    assert [a[1:5] for a in fake_tools.rubberband_argvs] == [["-p", "0", "-T", "0.9"]]
+    assert app.speed == 90
+    assert _preview_source(fake_tools) == "shift0-speed90.flac"
+    # the whole 19 s song is 21.1 s of the slower copy
+    assert _preview_t(fake_tools)[1] == pytest.approx(19 / 0.9, abs=0.001)
+    assert app.status_var.get() == "Speed set to 90%."
+
+
+def test_trim_points_stay_put_and_the_length_shows_the_saved_length(fake_tools, app,
+                                                                   quick_transpose):
+    _ready(app)
+    app._trim_changed(4, 16, True)
+    _preview_ready(app)
+    _speed(app, 75)
+    _transposed(app)
+    assert (app.spec.start, app.spec.end) == (4, 16)
+    assert app.length_var.get() == "Trimmed length 12.0 s · 16.0 s at 75%"
+    ss, t = _preview_t(fake_tools)
+    assert ss == pytest.approx(4 / 0.75, abs=0.001) and t == pytest.approx(16, abs=0.001)
+
+
+def test_typed_speeds_are_clamped_and_junk_is_rejected(fake_tools, app, quick_transpose):
+    _ready(app)
+    for typed, wanted in (("73", 73), ("200", 150), ("20%", 50), ("fast", 50), ("", 50)):
+        app.speed_var.set(typed)
+        app._speed_typed()
+        assert app.speed_wanted == wanted, typed
+        assert app.speed_var.get() == str(wanted)
+    app.cancel()
+
+
+def test_return_in_the_speed_box_applies_and_leaves_the_box(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.speed_box.focus_force()
+    app.update()
+    app.speed_var.set("80")
+    app.speed_box.event_generate("<Return>")
+    app.update()
+    assert app.speed_wanted == 80
+    assert app.focus_get() is not app.speed_box
+    _transposed(app)
+    assert app.speed == 80
+
+
+def test_shift_and_speed_together_make_one_copy(fake_tools, app, save_to, quick_transpose):
+    _ready(app)
+    _pick(app, "B-flat")
+    app.transpose_by(1)
+    app.transpose_by(1)
+    _speed(app, 75)
+    assert app.status_var.get() == "Preparing +2 at 75%…"
+    _transposed(app)
+    assert [a[1:5] for a in fake_tools.rubberband_argvs] == [["-p", "2", "-T", "0.75"]]
+    assert app.status_var.get() == "Transposed +2 → C, at 75%."
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    assert save_to["initialfile"] == "Me at the zoo - AUDIO - C (75%).mp3"
+    argv = fake_tools.save_argv
+    assert Path(argv[argv.index("-i") + 1]).name == "shift2-speed75.flac"
+    assert float(argv[argv.index("-t") + 1]) == pytest.approx(19 / 0.75, abs=0.001)
+
+
+def test_speed_without_a_key_goes_in_the_filename(fake_tools, app, save_to, quick_transpose):
+    _ready(app)
+    _speed(app, 120)
+    _transposed(app)
+    app.save()
+    _pump(app, lambda: app.state == main.SAVED)
+    assert save_to["initialfile"] == "Me at the zoo - AUDIO (120%).mp3"
+
+
+def test_cancel_restores_the_previous_speed_and_shift(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.transpose_by(1)
+    _speed(app, 80)
+    _transposed(app)
+    fake_tools.hold_transpose = True
+    _speed(app, 60)
+    _pump(app, lambda: len(fake_tools.rubberband_argvs) == 2)
+    app.cancel()
+    assert app.state == main.READY
+    assert (app.shift, app.speed, app.speed_wanted) == (1, 80, 80)
+    assert app.speed_var.get() == "80"
+    _pump(app, lambda: not app._worker.is_alive())
+    _preview_ready(app)
+    assert app.status_var.get() == "Cancelled. Still +1 at 80%."
+    assert _preview_source(fake_tools) == "shift1-speed80.flac"
+
+
+def test_speed_resets_for_a_new_url(fake_tools, app, quick_transpose):
+    _ready(app)
+    _speed(app, 70)
+    _transposed(app)
+    _fetch(app)
+    assert (app.speed, app.speed_wanted, app.speed_var.get()) == (100, 100, "100")
+
+
+def test_cursor_moves_at_the_songs_pace(fake_tools, app, player, quick_transpose):
+    _ready(app)
+    app._trim_changed(2, 18, True)
+    _preview_ready(app)
+    _speed(app, 50)
+    _transposed(app)
+    app.preview_from_start()
+    assert app.cursor == pytest.approx(2)
+    player.clock.now += 4                       # 4 s heard at half speed = 2 s of song
+    app._tick()
+    assert app.cursor == pytest.approx(4)
+    app.pause()
+    assert app.cursor == pytest.approx(4)
+    app.toggle_play()                            # resumes from the cursor: 4 s of song, 8 s of copy
+    assert player.offset == pytest.approx(8)
+    assert _wav_seconds(player.procs[-1].argv[1]) == pytest.approx(28, abs=0.01)
+    app.preview_from_end()                       # the last 10 s heard = 5 s of song
+    assert app.cursor == pytest.approx(13)
+
+
+def test_speed_keys_but_not_while_typing(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.focus_force()
+    app.update()
+    for keysym, wanted in (("bracketleft", 95), ("bracketleft", 90), ("bracketright", 95),
+                           ("backslash", 100)):
+        app.event_generate(f"<Key-{keysym}>")
+        app.update()
+        assert app.speed_wanted == wanted, keysym
+    app.speed_box.focus_force()
+    app.update()
+    app.speed_box.event_generate("<Key-bracketleft>")
+    app.update()
+    assert app.speed_wanted == 100
+
+
+def test_speed_never_resizes_the_window(fake_tools, app, quick_transpose):
+    _ready(app)
+    app.update_idletasks()
+    width = app.winfo_reqwidth()
+    for value in (50, 75, 150):
+        _speed(app, value)
+        app.update_idletasks()
+        assert app.winfo_reqwidth() == width
+    app.cancel()

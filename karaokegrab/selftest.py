@@ -1,7 +1,8 @@
 """``Karaoke Grabber --self-test``: check the whole engine without the window.
 
 Finds the tools, looks up a short video, downloads it into a temporary
-cache, transposes it up 2 semitones and saves a 5-second MP3 from that,
+cache, transposes it up 2 semitones at 75% speed and saves a 5-second MP3
+from that,
 printing each step. Run inside the built
 app with an empty environment to prove it works the way Finder starts it
 (no shell PATH):
@@ -41,7 +42,8 @@ def run(url: str = DEFAULT_URL, out=sys.stdout) -> int:
             audio = download.download(found["yt-dlp"], info.id, url, root=root)
             say(f"download ok: {audio.name}, {audio.stat().st_size // 1024} KB")
             shifted = transpose.transpose(found["ffmpeg"], found["rubberband"], audio, 2,
-                                          root / "shift2.flac", info.duration, tmp_dir=root)
+                                          root / "shift2-speed75.flac", info.duration,
+                                          tmp_dir=root, speed=75)
             say(f"transpose ok: {shifted.name}, {shifted.stat().st_size // 1024} KB")
             mp3 = root / "selftest.mp3"
             render.render_mp3(found["ffmpeg"], shifted, TrimSpec(0, 5, 0.5, 0.5).clamped(info.duration), mp3)

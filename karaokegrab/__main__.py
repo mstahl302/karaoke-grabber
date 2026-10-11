@@ -1,9 +1,9 @@
 """Command-line front end for the engine (milestone M1):
 
-    python -m karaokegrab "<url>" --key B-flat --transpose 2 --start 4.5 --end 339 --fade-out 2
+    python -m karaokegrab "<url>" --key B-flat --transpose 2 --speed 75 --start 4.5 --end 339 --fade-out 2
 
 Looks the video up, downloads its audio once into the cache, transposes it
-if asked, then trims, fades and saves ``<Song Title> - AUDIO - <key>.mp3``
+and changes its speed if asked, then trims, fades and saves ``<Song Title> - AUDIO - <key>.mp3``
 (the key you'll hear). The work runs on a
 worker thread, the way the app will run it; Ctrl-C cancels cleanly.
 """
@@ -50,6 +50,17 @@ def _shift(text: str) -> int:
     return value
 
 
+def _speed(text: str) -> int:
+    try:
+        value = int(text.rstrip("%"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} isn't a whole percentage") from None
+    if transpose.clamp_speed(value) != value:
+        raise argparse.ArgumentTypeError(
+            f"speed is {transpose.MIN_SPEED} to {transpose.MAX_SPEED} percent")
+    return value
+
+
 def _seconds(text: str) -> float:
     try:
         value = float(text)
@@ -71,6 +82,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--transpose", type=_shift, default=0, metavar="N",
                    help=f"shift by N semitones, -{keys.MAX_SHIFT} to +{keys.MAX_SHIFT} "
                         "(default 0); the file name gets the key you'll hear")
+    p.add_argument("--speed", type=_speed, default=100, metavar="PCT",
+                   help=f"play at PCT percent of the speed, {transpose.MIN_SPEED} to "
+                        f"{transpose.MAX_SPEED} (default 100), without changing the pitch; "
+                        "trim and fades stay positions in the original track")
     p.add_argument("--title", help="song title (default: the YouTube title)")
     p.add_argument("--start", type=_seconds, default=0.0, help="trim start, seconds (default 0)")
     p.add_argument("--end", type=_seconds, default=None, help="trim end, seconds (default: track end)")
@@ -152,18 +167,21 @@ def run(args: argparse.Namespace, out: Console, cancel: proc.Cancel) -> Path | N
     if args.transpose:
         heard = f" → {keys.effective_key(args.key, args.transpose)}" if args.key else ""
         out.say(f"  Transpose: {keys.shift_label(args.transpose)}{heard}")
-        label = f"Transposing {keys.shift_label(args.transpose)}"
+    if args.speed != 100:
+        out.say(f"  Speed:    {args.speed}%")
+    if not transpose.is_plain(args.transpose, args.speed):
+        label = transpose.progress_label(args.transpose, args.speed)
         try:
             audio = transpose.transpose(
                 found["ffmpeg"], found["rubberband"], audio, args.transpose,
-                cache.shifted_audio(info.id, args.transpose), info.duration,
-                on_fraction=lambda f: out.progress(label, f), cancel=cancel)
+                cache.processed_audio(info.id, args.transpose, args.speed), info.duration,
+                on_fraction=lambda f: out.progress(label, f), cancel=cancel, speed=args.speed)
         except transpose.TransposeError as e:
             raise Failure(e.message, e.details) from None
         out.end_progress()
         if audio is None:
             return None
-        settings.log(f"transposed {info.id} by {args.transpose:+d}")
+        settings.log(f"prepared {info.id}: {args.transpose:+d}, {args.speed}%")
 
     wanted = TrimSpec(args.start, args.end, args.fade_in, args.fade_out)
     spec = wanted.clamped(info.duration)
@@ -171,7 +189,9 @@ def run(args: argparse.Namespace, out: Console, cancel: proc.Cancel) -> Path | N
                         wanted.fade_in, wanted.fade_out):
         out.say("Note: trim and fades adjusted to fit the track.")
     out.say(f"  Trim:     {timecode.format_seconds(spec.start)} → {timecode.format_seconds(spec.end)}"
-            f"  ({timecode.format_seconds(spec.length)})")
+            f"  ({timecode.format_seconds(spec.length)})"
+            + (f", {timecode.format_seconds(spec.length * 100 / args.speed)} at {args.speed}%"
+               if args.speed != 100 else ""))
     if spec.fade_in or spec.fade_out:
         out.say(f"  Fades:    in {timecode.format_seconds(spec.fade_in)}, "
                 f"out {timecode.format_seconds(spec.fade_out)}")
@@ -181,12 +201,12 @@ def run(args: argparse.Namespace, out: Console, cancel: proc.Cancel) -> Path | N
     folder = folder.expanduser()
     if not folder.is_dir():
         raise Failure(f"The folder {folder} doesn't exist.", code=EXIT_USAGE)
-    path = folder / naming.filename(args.title or info.title, args.key, args.transpose)
+    path = folder / naming.filename(args.title or info.title, args.key, args.transpose, args.speed)
     if path.exists() and not args.overwrite:
         raise Failure(f"{path} already exists. Use --overwrite to replace it.", code=EXIT_USAGE)
 
     try:
-        saved = render.render_mp3(found["ffmpeg"], audio, spec, path,
+        saved = render.render_mp3(found["ffmpeg"], audio, spec.scaled(100 / args.speed), path,
                                   on_fraction=lambda f: out.progress("Saving", f),
                                   cancel=cancel)
     except render.RenderError as e:

@@ -130,3 +130,11 @@ def test_short_names_for_the_dropdown():
     assert len(set(keys.SHORT)) == 24
     assert all(keys.from_short(keys.short_name(k)) == k for k in keys.KEYS)
     assert keys.from_short("B-flat") is None
+
+
+def test_filename_with_a_speed():
+    assert naming.filename("Defying Gravity", "B-flat", 2, 75) == "Defying Gravity - AUDIO - C (75%).mp3"
+    assert naming.filename("Defying Gravity", None, 2, 75) == "Defying Gravity - AUDIO (+2, 75%).mp3"
+    assert naming.filename("Defying Gravity", None, -1, 120) == "Defying Gravity - AUDIO (-1, 120%).mp3"
+    assert naming.filename("Defying Gravity", None, 0, 75) == "Defying Gravity - AUDIO (75%).mp3"
+    assert naming.filename("Defying Gravity", "D", 0, 100) == "Defying Gravity - AUDIO - D.mp3"

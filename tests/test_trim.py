@@ -112,3 +112,27 @@ def test_preview_offset_is_clamped_to_the_trim():
 def test_from_end_cursor():
     assert trim.from_end_cursor(TrimSpec(10, 70)) == 60
     assert trim.from_end_cursor(TrimSpec(10, 15)) == 10
+
+
+# --- speed (F18): the song's timeline mapped onto the processed copy --------
+
+@pytest.mark.parametrize("speed", [50, 75, 100, 150])
+def test_scaled_spec_maps_the_song_onto_the_copy(speed):
+    k = 100 / speed
+    spec = TrimSpec(10, 110, 2, 6).clamped(200)
+    copy = spec.scaled(k)
+    assert copy.start == pytest.approx(10 * k) and copy.end == pytest.approx(110 * k)
+    assert copy.length == pytest.approx(100 * k)
+    assert copy.fade_in == pytest.approx(2 * k) and copy.fade_out == pytest.approx(6 * k)
+    assert copy.clamped(200 * k) == copy          # still valid on the copy
+    assert copy.fade_in + copy.fade_out <= copy.length
+
+
+def test_from_end_on_the_copy_is_the_last_ten_seconds_heard():
+    copy = TrimSpec(10, 110, 0, 0).scaled(2)      # 50%: the copy runs 20 s → 220 s
+    assert trim.from_end_cursor(copy) == pytest.approx(210)
+    assert trim.from_end_cursor(copy) / 2 == pytest.approx(105)     # 5 s before the end in the song
+
+
+def test_scaled_keeps_an_open_end():
+    assert TrimSpec(1, None).scaled(2).end is None

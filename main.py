@@ -3,7 +3,7 @@
 
 Paste a YouTube link, Fetch, check the info card, tidy the song title,
 trim and fade with the two sliders, listen with the preview buttons, pick
-the key and transpose, Save. See docs/product_spec.md §4–§6 and
+the key, transpose and speed, Save. See docs/product_spec.md §4–§6 and
 docs/architecture.md §4, §5.3 and §5.4.
 
 Work runs on one background worker at a time. Workers never touch
@@ -45,7 +45,7 @@ STEP_DOWNLOAD = (0.10, 0.95)     # the download's own progress is spread over th
 STEP_FINISH = 0.98
 TICK_MS = 50          # playback cursor refresh
 PREVIEW_DEBOUNCE_MS = 250   # wait for a dragged slider to settle before rendering
-TRANSPOSE_DEBOUNCE_MS = 400  # wait for − / + clicks to stop before transposing
+TRANSPOSE_DEBOUNCE_MS = 600  # wait for − / + and speed clicks to stop before preparing audio
 
 # --- states (docs/architecture.md §4) ---
 IDLE = "idle"
@@ -54,14 +54,14 @@ DOWNLOADING = "downloading"
 READY = "ready"
 SAVING = "saving"
 SAVED = "saved"
-TRANSPOSING = "transposing"
+PREPARING = "preparing"            # making the audio for a new shift or speed
 ERROR = "error"
 CANCELLED = "cancelled"
-BUSY = (FETCHING, DOWNLOADING, SAVING, TRANSPOSING)
+BUSY = (FETCHING, DOWNLOADING, SAVING, PREPARING)
 # Modifier bits that make a key press a shortcut for something else: Control,
 # Command (Mod1) and, on the Mac, Option (Mod2). ⌘+ / ⌘− stay zoom keys.
 SHORTCUT_MODS = 0x4 | 0x8 | (0x10 if sys.platform == "darwin" else 0)
-TEXT_CLASSES = ("TEntry", "Entry", "TCombobox", "Text")
+TEXT_CLASSES = ("TEntry", "Entry", "TCombobox", "Text", "TSpinbox", "Spinbox")
 
 CARD_BG = "#f6f2f9"
 CARD_EDGE = "#e2d8ea"
@@ -248,10 +248,13 @@ class App(tk.Tk):
         self._prep_status_saved = False
         self._ticking = False
 
-        # Transpose (F17). shift is what the source audio is shifted by now;
-        # shift_wanted is what the control shows, ahead of it while transposing.
+        # Transpose (F17) and speed (F18). shift / speed are what the source
+        # audio has now; the *_wanted values are what the controls show, ahead
+        # of them while the audio is being prepared.
         self.shift = 0
         self.shift_wanted = 0
+        self.speed = 100
+        self.speed_wanted = 100
         self._transpose_token = 0
         self._transpose_after: str | None = None
 
@@ -260,6 +263,7 @@ class App(tk.Tk):
         self.meta_var = tk.StringVar()
         self.key_var = tk.StringVar(value=KEY_NONE)
         self.shift_var = tk.StringVar(value="0")
+        self.speed_var = tk.StringVar(value="100")
         self.heard_var = tk.StringVar()
         self.status_var = tk.StringVar()
         self.fetch_error_var = tk.StringVar()
@@ -301,7 +305,7 @@ class App(tk.Tk):
 
     def _bind_shortcuts(self) -> None:
         """F13: Space starts/stops the preview, = / + and − transpose, 0
-        resets the transposition, ⌘S saves (Return = Fetch is on the URL
+        resets the transposition, ] / [ change the speed, \\ resets it, ⌘S saves (Return = Fetch is on the URL
         box). ⌘Q is tk::mac::Quit."""
         self.bind("<space>", self._space_key)
         for seq, step in (("<equal>", 1), ("<plus>", 1), ("<KP_Add>", 1),
@@ -309,6 +313,10 @@ class App(tk.Tk):
             self.bind(seq, lambda e, s=step: self._transpose_key(e, lambda: self.transpose_by(s)))
         for seq in ("<Key-0>", "<KP_0>"):
             self.bind(seq, lambda e: self._transpose_key(e, self.reset_shift))
+        step = transpose.SPEED_STEP
+        self.bind("<bracketright>", lambda e: self._transpose_key(e, lambda: self.speed_by(step)))
+        self.bind("<bracketleft>", lambda e: self._transpose_key(e, lambda: self.speed_by(-step)))
+        self.bind("<backslash>", lambda e: self._transpose_key(e, self.reset_speed))
         mod = "Command" if sys.platform == "darwin" else "Control"
         self.bind(f"<{mod}-s>", lambda _e: (self.save(), "break")[1])
         # A click outside a text field takes keyboard focus out of it, so Space
@@ -507,6 +515,18 @@ class App(tk.Tk):
         # wide enough for the longest key you can hear ("→ C♯m")
         tk.Label(krow, textvariable=self.heard_var, font=self.f_head, bg=CARD_BG,
                  fg=PURPLE, width=6, anchor="w").grid(row=0, column=6, padx=(8, 0))
+        # Speed (F18): a number box with arrows, after a gap
+        tk.Label(krow, text="Speed", font=self.f_head, bg=CARD_BG).grid(
+            row=0, column=7, padx=(20, 8))
+        self.speed_box = ttk.Spinbox(krow, textvariable=self.speed_var, width=4,
+                                     from_=transpose.MIN_SPEED, to=transpose.MAX_SPEED,
+                                     increment=transpose.SPEED_STEP, wrap=False,
+                                     command=self._speed_arrow, state="disabled")
+        self.speed_box.grid(row=0, column=8)
+        self.speed_box.bind("<Return>", self._speed_return)
+        self.speed_box.bind("<KP_Enter>", self._speed_return)
+        self.speed_box.bind("<FocusOut>", self._speed_typed, add="+")
+        tk.Label(krow, text="%", bg=CARD_BG).grid(row=0, column=9, padx=(4, 0))
 
         # Trim (F4): the whole track
         self._section(root, 2, "Trim", self.trim_note)
@@ -632,8 +652,8 @@ class App(tk.Tk):
             return "downloading…"
         if self.state == SAVING:
             return "saving…"
-        if self.state == TRANSPOSING:
-            return "transposing…"
+        if self.state == PREPARING:
+            return "preparing audio…"
         if self.audio is None or self.info is None:
             return "fetch a video first"
         return ""
@@ -655,7 +675,7 @@ class App(tk.Tk):
         self._show_shift()
         shown = self._status_before_preview if self._prep_status_saved else self.status_var.get()
         if shown.startswith("Transposed "):          # it names the key you hear
-            self._say(self._shift_status())
+            self._say(self._setting_status())
         self._refresh_save()
 
     def set_title(self, text: str) -> None:
@@ -669,6 +689,7 @@ class App(tk.Tk):
         self.key_var.set(KEY_NONE)
         self._stop_transpose()
         self.shift = self.shift_wanted = 0
+        self.speed = self.speed_wanted = 100
         self._show_shift()
         self._thumb_img = None
         self.thumb.configure(image=self._blank, text="♪")
@@ -718,7 +739,8 @@ class App(tk.Tk):
         key = self._key()
         folder = self.cfg.get("last_save_folder") or str(Path.home() / "Music")
         path = self._ask_save_path(folder if Path(folder).is_dir() else str(Path.home()),
-                                   naming.filename(self.title_var.get(), key, self.shift))
+                                   naming.filename(self.title_var.get(), key, self.shift,
+                                                   self.speed))
         if not path:
             # Save dialog cancelled: replace any earlier "Saved …" message.
             self.status_var.set("Not saved.")
@@ -735,7 +757,8 @@ class App(tk.Tk):
         self._saving_part = render.part_path(out)
         self._set_state(SAVING)
         self._step(0.0, "Saving…")
-        self._start_worker(self._save_worker, self.tools["ffmpeg"], self._source(), spec, out)
+        self._start_worker(self._save_worker, self.tools["ffmpeg"], self._source(),
+                           spec.scaled(self._k()), out)
 
     def _ask_save_path(self, folder: str, name: str) -> str:
         """The native Save dialog as its own window, not a sheet. Given the
@@ -754,7 +777,7 @@ class App(tk.Tk):
             holder.destroy()
 
     def cancel(self) -> None:
-        if self.state == TRANSPOSING:
+        if self.state == PREPARING:
             self._cancel_transpose()
             return
         if self.state in BUSY and self._cancel is not None:
@@ -785,45 +808,67 @@ class App(tk.Tk):
 
     def _ensure_source(self, then) -> bool:
         """True if the audio to render from is on disk: the download, or its
-        transposed copy. A missing copy is made again, then *then* runs."""
+        processed copy. A missing copy is made again, then *then* runs."""
         if not self._ensure_audio(then):
             return False
-        if self.shift == 0 or self._shifted_path(self.shift).exists():
+        if transpose.is_plain(self.shift, self.speed) or self._copy_path(self.shift, self.speed).exists():
             return True
-        n, self.shift = self.shift, 0          # only the download is left
+        n, s = self.shift, self.speed
+        self.shift, self.speed = 0, 100        # only the download is left
         self._pending = then
-        self._want_shift(n, delay=0)
+        self._want(n, s, delay=0)
         return False
 
-    # ------------------------------------------------------------ transpose (F17)
+    # ------------------------------------------------------------ transpose (F17) and speed (F18)
     def _source(self) -> Path:
         """The audio previews and saves render from."""
         assert self.audio is not None
-        return self.audio if self.shift == 0 else self._shifted_path(self.shift)
+        if transpose.is_plain(self.shift, self.speed):
+            return self.audio
+        return self._copy_path(self.shift, self.speed)
 
-    def _shifted_path(self, n: int) -> Path:
+    def _copy_path(self, n: int, s: int) -> Path:
         assert self.info is not None
-        return cache.shifted_audio(self.info.id, n)
+        return cache.processed_audio(self.info.id, n, s)
+
+    def _k(self) -> float:
+        """How many times longer the source is than the song: song time × k
+        is the same moment in the processed copy."""
+        return 100 / self.speed
 
     def _can_transpose(self) -> bool:
         return (self.audio is not None and self.info is not None
                 and self.state not in (IDLE, FETCHING, DOWNLOADING, SAVING, CANCELLED))
 
     def _show_shift(self) -> None:
-        """'+2' in the control, and '→ C' beside it when a key is picked."""
+        """'+2' in the control and '→ C' beside it when a key is picked; the
+        speed box; the trimmed length at that speed."""
         n = self.shift_wanted
         self.shift_var.set(keys.shift_label(n))
         key = self._key()
         self.heard_var.set(f"→ {keys.short_name(keys.effective_key(key, n))}" if key and n else "")
+        if self.focus_get() is not self.speed_box:     # don't fight someone typing
+            self.speed_var.set(str(self.speed_wanted))
+        self._show_length()
         self._refresh_editing()
 
-    def _shift_status(self) -> str:
-        n = self.shift
-        if n == 0:
-            return "Back in the original key."
-        key = self._key()
-        heard = f" → {keys.short_name(keys.effective_key(key, n))}" if key else ""
-        return f"Transposed {keys.shift_label(n)}{heard}."
+    def _setting_status(self) -> str:
+        n, s = self.shift, self.speed
+        parts = []
+        if n:
+            key = self._key()
+            heard = f" → {keys.short_name(keys.effective_key(key, n))}" if key else ""
+            parts.append(f"Transposed {keys.shift_label(n)}{heard}")
+        if s != 100:
+            parts.append(f"at {s}%" if parts else f"Speed set to {s}%")
+        return (", ".join(parts) + ".") if parts else "Back in the original key and speed."
+
+    def _setting_label(self) -> str:
+        """The current shift and speed in a few characters: "+1", "75%", "+1 at 75%"."""
+        parts = [keys.shift_label(self.shift)] if self.shift else []
+        if self.speed != 100:
+            parts.append(f"{self.speed}%")
+        return " at ".join(parts)
 
     def transpose_by(self, step: int) -> None:
         """The − / + buttons and keys."""
@@ -831,41 +876,93 @@ class App(tk.Tk):
             return
         n = max(-keys.MAX_SHIFT, min(keys.MAX_SHIFT, self.shift_wanted + step))
         if n != self.shift_wanted:
-            self._want_shift(n)
+            self._want(n, self.speed_wanted)
 
     def reset_shift(self) -> None:
         """The 0 key: back to the original key."""
         if self._can_transpose() and self.shift_wanted != 0:
-            self._want_shift(0)
+            self._want(0, self.speed_wanted)
+
+    def speed_by(self, step: int) -> None:
+        """The ] and [ keys: SPEED_STEP faster or slower."""
+        if self._can_transpose():
+            self._set_speed(self.speed_wanted + step)
+
+    def reset_speed(self) -> None:
+        """The \\ key: back to 100%."""
+        if self._can_transpose():
+            self._set_speed(100)
+
+    def _set_speed(self, value: int, delay: int | None = None) -> None:
+        s = transpose.clamp_speed(value)
+        self.speed_var.set(str(s))
+        if s != self.speed_wanted:
+            self._want(self.shift_wanted, s, delay=delay)
+
+    def _speed_arrow(self) -> None:
+        """The speed box's up/down arrows (the box already shows the new value)."""
+        if not self._can_transpose():
+            return
+        try:
+            value = int(self.speed_var.get())
+        except ValueError:
+            value = self.speed_wanted
+        self._set_speed(value)
+
+    def _speed_typed(self, _e=None) -> str | None:
+        """Return or leaving the box: apply a typed whole number, clamped to
+        the range; anything else goes back to the last value."""
+        text = self.speed_var.get().strip().rstrip("%").strip()
+        try:
+            value = int(text)
+        except ValueError:
+            self.speed_var.set(str(self.speed_wanted))
+            return None
+        if self._can_transpose():
+            self._set_speed(value, delay=0)
+        else:
+            self.speed_var.set(str(self.speed_wanted))
+        return None
+
+    def _speed_return(self, e) -> str:
+        self._speed_typed(e)
+        self.focus_set()                 # out of the box, so Space and the keys work again
+        return "break"
 
     def _want_shift(self, n: int, delay: int | None = None) -> None:
-        """Show shift *n* at once; make its audio once the clicks have stopped
-        for *delay* ms. A transposition already running is cancelled. A shift
-        that needs no work (0, or the copy already made) applies straight away."""
-        self.shift_wanted = n
+        self._want(n, self.speed_wanted, delay)
+
+    def _want(self, n: int, s: int, delay: int | None = None) -> None:
+        """Show shift *n* and speed *s* at once; make their audio once the
+        controls have been still for *delay* ms. A preparation already
+        running is cancelled. A setting that needs no work (0 / 100%, or the
+        copy already made) applies straight away."""
+        self.pause()                    # while the cursor still maps through the old speed
+        self.shift_wanted, self.speed_wanted = n, s
         self._show_shift()
         self._stop_transpose()
-        if n == 0 or self._shifted_path(n).exists():
-            changed = n != self.shift or self.state == TRANSPOSING
-            self.shift = n
+        if transpose.is_plain(n, s) or self._copy_path(n, s).exists():
+            changed = (n, s) != (self.shift, self.speed) or self.state == PREPARING
+            self.shift, self.speed = n, s
             if changed:
                 self.progress.configure(value=0)
-                self._say(self._shift_status())
+                self._say(self._setting_status())
                 self._set_state(READY)
+                self._sync_sliders()
                 self._schedule_preview()
             if self._pending is not None:
                 action, self._pending = self._pending, None
                 self._after(0, action)
             return
         self._drop_preview()
-        if self.state != TRANSPOSING:
-            self._set_state(TRANSPOSING)
-        self._step(0.0, f"Transposing {keys.shift_label(n)}…")
+        if self.state != PREPARING:
+            self._set_state(PREPARING)
+        self._step(0.0, f"{transpose.progress_label(n, s)}…")
         self._transpose_after = self._after(TRANSPOSE_DEBOUNCE_MS if delay is None else delay,
                                             self._start_transpose)
 
     def _stop_transpose(self) -> None:
-        """Forget a pending or running transposition (its messages go stale)."""
+        """Forget a pending or running preparation (its messages go stale)."""
         self._transpose_token += 1
         if self._transpose_after is not None:
             try:
@@ -874,29 +971,30 @@ class App(tk.Tk):
                 pass
             self._afters.discard(self._transpose_after)
             self._transpose_after = None
-        if self.state == TRANSPOSING and self._cancel is not None:
+        if self.state == PREPARING and self._cancel is not None:
             self._cancel.set()
 
     def _start_transpose(self) -> None:
         self._transpose_after = None
-        if self.state != TRANSPOSING or self.info is None or self.audio is None:
+        if self.state != PREPARING or self.info is None or self.audio is None:
             return
-        n = self.shift_wanted
+        n, s = self.shift_wanted, self.speed_wanted
         self._transpose_token += 1
         self._start_worker(self._transpose_worker, self._transpose_token, self.tools["ffmpeg"],
-                           self.tools["rubberband"], self.audio, n, self._shifted_path(n),
+                           self.tools["rubberband"], self.audio, n, s, self._copy_path(n, s),
                            self.info.duration)
 
     def _cancel_transpose(self) -> None:
-        """Cancel: back to the shift the audio already has."""
+        """Cancel: back to the shift and speed the audio already has."""
         self._stop_transpose()
         self._pending = None
-        self.shift_wanted = self.shift
+        self.shift_wanted, self.speed_wanted = self.shift, self.speed
+        self.speed_var.set(str(self.speed))
         self._show_shift()
         self.progress.configure(value=0)
-        self._say("Transpose cancelled." + (
-            f" Still {keys.shift_label(self.shift)}." if self.shift else ""))
-        settings.log("cancelled while transposing")
+        still = self._setting_label()
+        self._say("Cancelled." + (f" Still {still}." if still else ""))
+        settings.log("cancelled while preparing audio")
         self._set_state(READY)
         self._schedule_preview(delay=0)
 
@@ -921,6 +1019,7 @@ class App(tk.Tk):
         can = self._can_transpose()
         self.shift_down.set_enabled(can and self.shift_wanted > -keys.MAX_SHIFT)
         self.shift_up.set_enabled(can and self.shift_wanted < keys.MAX_SHIFT)
+        self.speed_box.configure(state="normal" if can else "disabled")
 
     def _sync_sliders(self) -> None:
         """Push self.spec and self.cursor into both sliders and all the labels."""
@@ -944,13 +1043,25 @@ class App(tk.Tk):
         self.fade_slider.set_values(spec.fade_in, spec.length - spec.fade_out)
         self.start_var.set(fmt(spec.start))
         self.end_var.set(fmt(spec.end))
-        self.length_var.set(f"Trimmed length {fmt(spec.length)}")
+        self._show_length()
         self.fade_in_var.set(fmt(spec.fade_in))
         self.fade_out_var.set(fmt(spec.fade_out))
         self.trim_note.set(f"whole track 0:00 – {fmt(duration)}")
         self.fade_note.set(f"trimmed range 0:00 – {fmt(spec.length)}")
         self._show_cursor()
         self._refresh_editing()
+
+    def _show_length(self) -> None:
+        """'Trimmed length 5:34.5', plus the saved length when the speed isn't 100%."""
+        spec = self.spec
+        if spec is None:
+            return
+        fmt = timecode.format_seconds
+        text = f"Trimmed length {fmt(spec.length)}"
+        s = self.speed_wanted
+        if s != 100:
+            text += f" · {fmt(spec.length * 100 / s)} at {s}%"
+        self.length_var.set(text)
 
     def _show_cursor(self) -> None:
         spec = self.spec
@@ -1057,7 +1168,8 @@ class App(tk.Tk):
         clip = self._tmp / f"preview-{self._preview_token}.wav"
         threading.Thread(target=self._preview_worker, daemon=True,
                          args=(self._token, self._preview_token, self._preview_cancel,
-                               self.tools["ffmpeg"], self._source(), self.spec, clip)).start()
+                               self.tools["ffmpeg"], self._source(), self.spec.scaled(self._k()),
+                               clip)).start()
 
     def _preview_worker(self, token: int, ptoken: int, cancel: proc.Cancel, ffmpeg: str,
                         audio: Path, spec: TrimSpec, clip: Path) -> None:
@@ -1089,7 +1201,8 @@ class App(tk.Tk):
 
     def preview_from_end(self) -> None:
         if self._can_play():
-            self.cursor = trim.from_end_cursor(self.spec)
+            k = self._k()                   # the last 10 s as you hear them
+            self.cursor = trim.from_end_cursor(self.spec.scaled(k)) / k
             self._play_from_cursor()
 
     def pause(self) -> None:
@@ -1097,6 +1210,7 @@ class App(tk.Tk):
         preview itself is kept, so playing again is instant."""
         pos = self.player.stop()
         if pos is not None and self.spec is not None:
+            pos /= self._k()                # the player counts in the copy's time
             self.cursor = min(max(pos, self.spec.start), self.spec.end)
             self._show_cursor()
         self._refresh_editing()
@@ -1106,14 +1220,18 @@ class App(tk.Tk):
         cursor = self.cursor
         self.pause()                    # would move the cursor to where the old clip had got to
         self.cursor = cursor
-        at = self.spec.start + trim.preview_offset(self.spec, cursor)
-        offset = at - self.spec.start
+        # The preview and the player count in the processed copy's time; the
+        # cursor is in the song's (× k = the same moment in the copy).
+        k = self._k()
+        copy = self.spec.scaled(k)
+        at = copy.start + trim.preview_offset(copy, cursor * k)
+        offset = at - copy.start
         if offset < 0.01:
             clip = self.preview_clip
         else:
             clip = slice_wav(self.preview_clip, self._tmp / "play.wav", offset)
         self.player.play(clip, at)
-        self.cursor = at
+        self.cursor = at / k
         self._show_cursor()
         self._refresh_editing()
         self._start_ticking()
@@ -1127,7 +1245,7 @@ class App(tk.Tk):
         """Advance the cursor while a clip plays; at the clip's end the
         cursor rests at the trim end."""
         if self.player.playing and self.spec is not None:
-            self.cursor = min(self.player.position(), self.spec.end)
+            self.cursor = min(self.player.position() / self._k(), self.spec.end)
             self._show_cursor()
             self._after(TICK_MS, self._tick)
             return
@@ -1201,20 +1319,20 @@ class App(tk.Tk):
             self._post(token, "error", f"Something went wrong: {e}", repr(e), "fetch")
 
     def _transpose_worker(self, token: int, cancel: proc.Cancel, tt: int, ffmpeg: str,
-                          rubberband: str, audio: Path, n: int, dest: Path,
+                          rubberband: str, audio: Path, n: int, s: int, dest: Path,
                           duration: float) -> None:
         try:
             out = transpose.transpose(
                 ffmpeg, rubberband, audio, n, dest, duration, cancel=cancel, tmp_dir=self._tmp,
-                on_fraction=lambda f: self._post(token, "transpose_progress", tt, n, f))
+                speed=s, on_fraction=lambda f: self._post(token, "transpose_progress", tt, n, s, f))
             if out is None:
                 return self._post(token, "transpose_cancelled", tt)
-            settings.log(f"transposed {audio.parent.name} by {n:+d}")
-            self._post(token, "transposed", tt, n)
+            settings.log(f"prepared {audio.parent.name}: {n:+d}, {s}%")
+            self._post(token, "transposed", tt, n, s)
         except transpose.TransposeError as e:
             self._post(token, "transpose_error", tt, e.message, e.details)
         except Exception as e:
-            self._post(token, "transpose_error", tt, f"Transposing failed: {e}", repr(e))
+            self._post(token, "transpose_error", tt, f"Preparing the audio failed: {e}", repr(e))
 
     def _save_worker(self, token: int, cancel: proc.Cancel, ffmpeg: str, audio: Path,
                      spec: TrimSpec, out: Path) -> None:
@@ -1296,28 +1414,30 @@ class App(tk.Tk):
                 self.status_var.set("Cancelled.")
                 self._set_state(CANCELLED)
         elif kind == "transpose_progress":
-            tt, n, fraction = payload
-            if tt == self._transpose_token and self.state == TRANSPOSING:
-                self._step(fraction, f"Transposing {keys.shift_label(n)}… {int(fraction * 100)}%")
+            tt, n, s, fraction = payload
+            if tt == self._transpose_token and self.state == PREPARING:
+                self._step(fraction, f"{transpose.progress_label(n, s)}… {int(fraction * 100)}%")
         elif kind == "transposed":
-            tt, n = payload
-            if tt != self._transpose_token or self.state != TRANSPOSING:
+            tt, n, s = payload
+            if tt != self._transpose_token or self.state != PREPARING:
                 return
-            self.shift = n
-            self._want_shift(n)          # the copy now exists: applies at once
+            self.shift, self.speed = n, s
+            self._want(n, s)             # the copy now exists: applies at once
         elif kind == "transpose_cancelled":
             (tt,) = payload
-            if tt == self._transpose_token and self.state == TRANSPOSING:
+            if tt == self._transpose_token and self.state == PREPARING:
                 self._cancel_transpose()
         elif kind == "transpose_error":
             tt, message, details = payload
-            if tt != self._transpose_token or self.state != TRANSPOSING:
+            if tt != self._transpose_token or self.state != PREPARING:
                 return
             self._pending = None
-            self.shift_wanted = self.shift          # keep the shift the audio has
+            # keep the shift and speed the audio has
+            self.shift_wanted, self.speed_wanted = self.shift, self.speed
+            self.speed_var.set(str(self.speed))
             self._show_shift()
             if details:
-                settings.log("transpose error: " + message + "\n" + details)
+                settings.log("preparing error: " + message + "\n" + details)
             self._show_error(message, details)
             self._schedule_preview(delay=0)
         elif kind == "preview_ready":

@@ -32,7 +32,7 @@ def test_self_test_runs_lookup_download_and_save(monkeypatch, fake_run, video_js
     assert "lookup ok" in text and "download ok" in text and "save ok" in text
     assert "transpose ok" in text
     save = fake_run.calls[-1]
-    assert save[save.index("-i") + 1].endswith("shift2.flac")
+    assert save[save.index("-i") + 1].endswith("shift2-speed75.flac")
     assert text.rstrip().endswith("self-test passed")
 
 

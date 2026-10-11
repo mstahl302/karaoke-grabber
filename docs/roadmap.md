@@ -45,9 +45,103 @@ thinking about it.
   can be used as a fast "latest version" lookup without running
   `brew update` first.
 
-### R8. Precise trim values
+### R11. Click track
 
 *(High priority: planned right after R3.)*
+
+Mix a metronome click into the saved MP3 (and the preview) so the track can
+be rehearsed or played along with: a click on every beat, a louder or
+higher one on beat 1.
+
+**Preliminary research: feasible, medium-hard.** Mixing is trivial,
+steady tempo is easy, and tempo changes are the hard part. Roughly 1–2
+days for a steady-tempo click, plus 3–5 days if tempo changes and
+retards must be right.
+
+**1. Find the tempo and beat times.** This is the hard part.
+
+| Option | Install | Beat times | Tempo changes | Verdict |
+|---|---|---|---|---|
+| Pure Python (no new dependencies): ffmpeg decodes to mono PCM, then onset envelope, autocorrelation for the tempo, and a dynamic-programming beat tracker (Ellis 2007) | none | yes | partly: a DP tracker follows gradual drift | Fine for steady karaoke tracks (most are MIDI-style, with a locked tempo). Weakest on rubato. |
+| **aubio** (`aubiotrack`, Homebrew) | `brew install aubio` (pulls numpy + Python as dependencies) | yes, in seconds | causal tracker, slow to follow changes | Easiest tool, mediocre accuracy. |
+| **librosa** `beat_track` | NumPy, SciPy, numba, soundfile (large) | yes | weak: published comparisons find it good for an average BPM but poor on changing tempo | Not worth the weight over the pure-Python option. |
+| **madmom** (RNN + DBN beat/downbeat) | needs a compiler and old build tooling; poorly maintained, unlikely to build on Python 3.14 | yes, plus downbeats | best classical option | Accurate but fragile. Its DBN has a non-commercial licence, fine for personal use. |
+| **beat_this** (JKU, 2024, no DBN post-processing) or **BeatNet** | PyTorch, hundreds of MB | yes, plus downbeats | good (no fixed-tempo assumption in beat_this) | Best accuracy by far; heavy for a PyInstaller `.app`. A separate optional "accurate mode" could use it. |
+| **Essentia** `RhythmExtractor2013` | pip wheel; Python 3.14 wheels uncertain | yes | statistics over the whole track; follows tempo changes poorly | Reasonable alternative to madmom if a wheel exists. |
+
+Recommended start: the pure-Python tracker, which keeps "no runtime
+dependencies", with the beat list as the interface. A better tracker can
+later replace it without touching the rest.
+
+**2. Align the clicks.** Make the beat list explicit and let the user fix
+it. A **Click** row shows the detected BPM, a **Nudge** (offset in ms, in
+case the first beat is detected on the wrong side of the pickup), and a
+**Beat 1** choice: which of the first beats is the downbeat, plus the time
+signature (3, 4, 6). Count-in clicks before the music starts would need
+beats before the first detected one, extrapolated at the opening tempo.
+Beat times come from the original download, so they stay valid for any
+trim: subtract the trim start. Transposing doesn't change tempo, so the
+beat list is cached per video, next to the audio. Verification is by
+ear and by a listening test on a handful of real tracks, plus a synthetic
+test (a generated track at a known BPM, checked to a few ms).
+
+**3. Inject the clicks.** Easy and already proven.
+
+- Render the click track from the beat list with the standard library
+  (`wave` + `array`: a ~20 ms 1 kHz decaying burst at each time, 48 kHz),
+  or for a fixed tempo a single ffmpeg `aevalsrc` expression.
+- Mix with ffmpeg: `[music][clicks]amix=inputs=2:normalize=0:duration=first`
+  (`normalize=0` exists in the installed ffmpeg 9, so the music level is
+  untouched). Tested here: output length and level are right.
+- Click gain slider, and an option for **click on one side only** (click
+  in the left channel, music in both, which is what in-ear monitor users
+  usually want). Add the click after the fades so it isn't faded away.
+- The preview WAV gets the same click, so you hear it before saving. The
+  saved file name gets a suffix, e.g. `… - AUDIO + click.mp3`.
+- Avoid ffmpeg's `adelay` per beat; it is clumsy with hundreds of beats.
+
+**4. Corner cases.**
+
+- **Tempo change or retard (ritardando).** A tracker that returns every
+  beat time (not one BPM) follows gradual change by construction: the
+  click is drawn at each detected beat. Check that the interval between
+  clicks never jumps by more than ~25% between beats, and flag the track
+  as "tempo not steady" when it does. Expect errors at the final retard,
+  at fermatas (held notes) and at key changes with a new tempo. A way to
+  fix these by hand (drag or delete a beat on the R6 waveform, or edit
+  the list) is the realistic answer; automatic perfection isn't.
+- **Half or double tempo** is the most common tracker error (a 70 BPM
+  ballad reported as 140). Offer ×½ / ×2 buttons next to the BPM.
+- **Intro with no beat** (rubato piano, a-cappella intro): start the
+  clicks at the first confident beat, or at a time you choose, rather
+  than inventing beats.
+- **Swing and triplet feel:** beats come out right; subdivisions
+  (clicking eighths) wouldn't, so only click the beat.
+- **Time-signature changes** (rare in karaoke) can't be detected
+  reliably. A manual "beat 1" re-pick covers it.
+- **Speed and trim.** Beat times come from the original audio, so a
+  trim only shifts them, and a transpose changes nothing. A speed change
+  (milestone M7) scales every beat time by 1/speed, so the click follows
+  the slowed or sped-up music for free.
+- **Silence and fade-out ends:** stop clicking after the last confident
+  beat.
+- **Long-range sample accuracy** isn't an issue: the click track and the
+  music share the 48 kHz clock. `rubberband`'s time-varying map
+  (`--timemap`) would matter only for a different feature (tempo change,
+  FR3), and it isn't sample-exact either.
+
+*Questions:*
+
+- Is the pure-Python tracker good enough, or is a heavier optional
+  "accurate mode" (beat_this) worth a separate milestone?
+- Click only on the saved MP3, or also while previewing? (Previewing is
+  what makes nudging practical.)
+- Should the click replace the count-in/pickup beats before the first
+  note, or only run during the music?
+
+### R8. Precise trim values
+
+*(High priority: planned after R11.)*
 
 V1 trims and fades with sliders and shows their values as read-only
 seconds. R8 ties each slider handle (trim and fade) to an **editable**

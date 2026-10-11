@@ -172,16 +172,11 @@ left it.
   list entry. The list is capped at 10; the oldest falls off together
   with its cached audio. A "Clear recent" item at the bottom of the
   dropdown removes the list.
+  Nothing opens at startup: the window always starts empty, and you
+  start a new song or pick one from Recent.
 - **Last settings** (key, speed, trim) could be remembered per song so a
   reselected song comes back as you left it. That would be a small
   extension; it isn't part of R12.
-
-*Questions:*
-
-- Open the last song automatically at startup, or leave the window empty
-  until you pick one?
-- Should Open file… (R9) loads also appear in the list, or only YouTube
-  songs? (A file isn't in the cache, so it would need its own path.)
 
 ### R8. Precise trim values
 
@@ -410,3 +405,11 @@ most work:
 - **A lighter preview.** Render the preview as 22 kHz mono instead of 48 kHz
   stereo, about an eighth of the data to write. The saved MP3 keeps full
   quality.
+
+### FR12. Files in the Recent list
+
+R12's Recent list holds YouTube songs only. Songs opened from a file (R9)
+could appear in it too. A file isn't in the download cache, so its entry
+would store the file's path instead of a video id, and picking it would
+reopen that file where it is (and say so if it has moved or been deleted).
+Not wanted now; recorded so it isn't forgotten.

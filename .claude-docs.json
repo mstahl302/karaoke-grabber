@@ -41,8 +41,8 @@
       "doc_id": "35921c14-93e1-4644-b81e-9f2fd5d39575",
       "tab_id": "3d12e6b2-625c",
       "body_id": "a86b4962-0945",
-      "synced_rev": 39,
-      "synced_sha256": "898b4ded63b6d56c3a990a67944a55be8df735b3cb224ef383c4a308ff2c6d33"
+      "synced_rev": 40,
+      "synced_sha256": "680ca87a03ad3fa0fda813e07f66924773e3021e24156872b56a4cbd7ac77f0a"
     },
     "docs/build_plan.md": {
       "title": "Karaoke Grabber \u2014 Build Plan",

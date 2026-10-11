@@ -13,18 +13,6 @@ add fades if you like, and save.
 step-by-step walkthrough. This file is for installing, building and
 developing it.
 
-## What this project does and doesn't contain
-
-**This project contains no code that scrapes, reverse-engineers or
-otherwise accesses YouTube.** All of that is done by separate, independent
-open-source projects, chiefly [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-(with [ffmpeg](https://ffmpeg.org) and [deno](https://deno.com)), which you
-install yourself and which this app simply runs as external programs. Keeping
-that line clean is deliberate, so this code stays free of legal entanglements.
-Karaoke Grabber itself only trims, fades, names and saves audio that those
-tools hand it. You are responsible for using it in line with the terms of the
-sites you use and the laws where you live.
-
 ## Requirements
 
 - macOS on Apple Silicon.
@@ -82,6 +70,18 @@ brew upgrade yt-dlp
 ```
 
 If it still fails, run `brew upgrade` to update everything.
+
+## What this project does and doesn't contain
+
+**This project contains no code that scrapes, reverse-engineers or
+otherwise accesses YouTube.** All of that is done by separate, independent
+open-source projects, chiefly [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+(with [ffmpeg](https://ffmpeg.org) and [deno](https://deno.com)), which you
+install yourself and which this app simply runs as external programs. Keeping
+that line clean is deliberate, so this code stays free of legal entanglements.
+Karaoke Grabber itself only trims, fades, names and saves audio that those
+tools hand it. You are responsible for using it in line with the terms of the
+sites you use and the laws where you live.
 
 ## Project layout
 
